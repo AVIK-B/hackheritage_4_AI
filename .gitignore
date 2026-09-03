@@ -1,0 +1,3 @@
+.venv/  __pycache__/  *.pyc  .env  .pytest_cache/  .ruff_cache/
+data/  adapters/  merged/  *.gguf  mlruns/  evals_*.json
+serving_registry.json  /models/*.gguf  kaggle/working/

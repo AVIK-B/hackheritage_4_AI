@@ -1,0 +1,48 @@
+from langgraph.graph import StateGraph, START, END
+from src.orchestration import nodes_io as io
+from src.orchestration import nodes_llm as ln
+from src.orchestration.state import OrchestratorState as S
+
+
+def build(cfg: dict, http, llm, checkpointer=None):
+    g = StateGraph(S)
+    # (explicit wiring below — clearer than magic)
+    g.add_node("ingest", lambda s: io.ingest(s, cfg=cfg, http=http))
+    g.add_node("crisis_precheck", lambda s: io.crisis_precheck(s, cfg=cfg))
+    g.add_node("sentiment", io.make_signal_node("sentiment", "/v1/signals/text"))
+    g.add_node("threat", io.make_signal_node("threat", "/v1/signals/threat"))
+    g.add_node("voice", io.make_signal_node("voice", "/v1/signals/voice"))
+    g.add_node("fuse", lambda s: io.fuse(s, cfg=cfg, http=http))
+    g.add_node("forecast", lambda s: io.forecast(s, cfg=cfg, http=http))
+    g.add_node("decide", lambda s: io.decide(s, cfg=cfg))
+    g.add_node("victim_handoff", lambda s: io.victim_handoff(s, cfg=cfg))
+    g.add_node("respond", lambda s: ln.respond(s, cfg=cfg, llm=llm))
+    g.add_node("summarize", lambda s: ln.summarize(s, cfg=cfg, llm=llm))
+    g.add_node("dispatch_crisis", io.dispatch_alert("crisis"))
+    g.add_node("dispatch_escalation", io.dispatch_alert("high"))
+    g.add_node("audit", lambda s: io.audit_node(s, cfg=cfg))
+
+    g.add_edge(START, "ingest")
+    g.add_edge("ingest", "crisis_precheck")
+    g.add_conditional_edges(
+        "crisis_precheck",
+        lambda s: "crisis" if s["crisis"].is_crisis else "collect",
+        {"crisis": "victim_handoff", "collect": "sentiment"})
+    g.add_edge("victim_handoff", "dispatch_crisis")
+    g.add_edge("dispatch_crisis", "audit")
+
+    for n in ("sentiment", "threat", "voice"):
+        g.add_edge(n, "fuse")            # START fan-in: all three run from 'collect'
+    g.add_edge("collect", "sentiment"); g.add_edge("collect", "threat"); g.add_edge("collect", "voice")
+    g.add_edge("fuse", "forecast")
+    g.add_edge("forecast", "decide")
+    g.add_conditional_edges(
+        "decide",
+        lambda s: s["decision"].route if s["decision"].route in ("escalate",) else "routine",
+        {"escalate": "summarize", "routine": "respond"})
+    g.add_edge("summarize", "dispatch_escalation")     # interrupted before this node
+    g.add_edge("dispatch_escalation", "audit")
+    g.add_edge("respond", "audit")
+    g.add_edge("audit", END)
+
+    return g.compile(checkpointer=checkpointer, interrupt_before=["dispatch_escalation"])
