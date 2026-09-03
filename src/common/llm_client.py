@@ -6,13 +6,21 @@ from src.common.resilience import breakers
 
 log = structlog.get_logger()
 _TRANSIENT = (APIConnectionError, APITimeoutError, RateLimitError)
-
+_PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
 
 class LLMDown(Exception):
     pass
 
 
 class LLMClient:
+        # at the very top of llm_client.py, add this import:
+    # from pathlib import Path
+
+    # inside the class body, first members:
+      # repo root /prompts
+
+    SYSTEM_A = (_PROMPTS_DIR / "sahayak_system.txt").read_text(encoding="utf-8").strip()
+    SYSTEM_B = (_PROMPTS_DIR / "casewriter_system.txt").read_text(encoding="utf-8").strip()
     def __init__(self, base_url: str, model_map: dict[str, str],
                  api_key: str = "EMPTY", timeout: int = 25):
         self.cli = OpenAI(base_url=base_url, api_key=api_key, timeout=timeout, max_retries=0)
