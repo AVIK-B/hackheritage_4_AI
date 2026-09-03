@@ -1,0 +1,23 @@
+run_name: adapter_b_casewriter_v1
+base_model: sarvamai/sarvam-1
+data:
+  format: messages
+  train: data/processed/case_summary_train.jsonl
+  val: data/processed/case_summary_val.jsonl
+training:
+  output_dir: adapters/adapter_b
+  num_train_epochs: 3
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 8
+  learning_rate: 2.0e-4
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  max_seq_len: 3072
+  seed: 42
+  logging_steps: 20
+  eval_steps: 200
+lora: { r: 32, alpha: 64, dropout: 0.05,
+        target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj] }
+upload:
+  repo_id: <you>/ps26094-lora
+  path_in_repo: adapter_b
