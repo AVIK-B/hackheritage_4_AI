@@ -17,7 +17,7 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S", "SIM", "PERF", "RUF", "ISC"]
-ignore = ["BLE001"]  # intentional: fail-safe degradation paths catch broad, log, and degrade — never silent
+ignore = ["BLE001", "ISC001"]  # BLE001: intentional fail-safe degradation; ISC001: conflicts with ruff format (docs-recommended)
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]            # asserts are the mechanism of pytest — bandit is for app code
