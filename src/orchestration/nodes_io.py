@@ -146,21 +146,31 @@ def decide(state, *, cfg) -> dict:
 
 
 def victim_handoff(state, *, cfg) -> dict:
-    """Safety-critical copy is TEMPLATED. Never generated."""
+    """Safety-critical copy is TEMPLATED, never generated. Also writes the crisis
+    Decision so downstream consumers (dispatch, audit) see a uniform state —
+    the crisis path skips `decide` by design, so this node owns it here."""
     from src.common.safety import CRISIS_COPY
+    from src.orchestration.state import Decision
 
-    return {"reply": CRISIS_COPY.get(state.get("language", "en"), CRISIS_COPY["en"])}
+    crisis = state.get("crisis")
+    hits = ", ".join(crisis.hits) if crisis and crisis.hits else "pattern match"
+    decision = Decision(route="crisis",
+                        reasons=[f"crisis precheck: {crisis.source} ({hits})"] if crisis else ["crisis precheck"],
+                        policy_version=cfg.get("policy_version", "?"))
+    return {"reply": CRISIS_COPY.get(state.get("language", "en"), CRISIS_COPY["en"]),
+            "decision": decision}
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
 def _dispatch(http, cfg, state):
+    decision = state.get("decision")
     return _post(
         http,
         f"{cfg['services']['backend']}/v1/alerts",
         {
             "case_id": state["case_id"],
             "severity": state["_severity"],
-            "reasons": state["decision"].reasons,
+            "reasons": decision.reasons if decision else [],
             "summary_text": state.get("summary_text", ""),
         },
         5.0,
@@ -179,13 +189,14 @@ def dispatch_alert(severity: str):
             return {"dispatched": True, "alert_id": r["alert_id"]}
         except Exception as e:
             # dead-letter: never lose an escalation — record it in the tamper-evident ledger
+            decision = state.get("decision")
             _ledger.append(
                 {
                     "kind": "alert_dispatch_failed",
                     "thread_id": state["thread_id"],
                     "case_id": state["case_id"],
                     "severity": severity,
-                    "reasons": state["decision"].reasons,
+                    "reasons": decision.reasons if decision else [],
                     "error": str(e),
                 }
             )
