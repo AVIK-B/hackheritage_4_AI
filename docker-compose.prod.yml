@@ -1,0 +1,54 @@
+services:
+  orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8500:8500"
+    environment:
+      ORCH_ENV: prod
+      ORCH_API_KEYS: ${ORCH_API_KEYS:?set ORCH_API_KEYS JSON for victim/counsellor/ops roles}
+      ORCH_LLM_BASE_URL: http://ollama:11434/v1
+      ORCH_LLM_API_KEY: ${ORCH_LLM_API_KEY:-EMPTY}
+      ORCH_LLM_MODEL_MAP: '{"dialogue":"sahayak","summary":"casewriter"}'
+      ORCH_SERVICES: ${ORCH_SERVICES:?set scoring/fusion/forecast/backend service URLs}
+      ORCH_CHECKPOINT_DSN: postgresql://orch:${DB_PASSWORD:?set DB_PASSWORD}@db:5432/orch
+      ORCH_AUDIT_PATH: /data/audit/ledger.jsonl
+      ORCH_RATE_LIMIT_RPM: ${ORCH_RATE_LIMIT_RPM:-60}
+      ORCH_MAX_CONCURRENT_GRAPHS: ${ORCH_MAX_CONCURRENT_GRAPHS:-6}
+      ORCH_ALLOWED_ORIGINS: ${ORCH_ALLOWED_ORIGINS:-["https://localhost"]}
+    volumes:
+      - audit-data:/data/audit
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: orch
+      POSTGRES_USER: orch
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U orch -d orch"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-data:/root/.ollama
+      - ./models:/models:ro
+    restart: unless-stopped
+
+volumes:
+  audit-data:
+  pg-data:
+  ollama-data:
