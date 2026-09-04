@@ -21,21 +21,28 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         t0 = time.perf_counter()
         resp = await call_next(request)
         resp.headers["X-Request-ID"] = rid
-        log.info("access", method=request.method, path=request.url.path,
-                 status=resp.status_code, ms=int((time.perf_counter() - t0) * 1000))
+        log.info(
+            "access",
+            method=request.method,
+            path=request.url.path,
+            status=resp.status_code,
+            ms=int((time.perf_counter() - t0) * 1000),
+        )
         return resp
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request, call_next):
         resp = await call_next(request)
-        resp.headers.update({"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY",
-                             "Referrer-Policy": "no-referrer"})
+        resp.headers.update(
+            {"X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer"}
+        )
         return resp
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Token bucket per API key (per worker). Swap the store for Redis to scale out."""
+
     def __init__(self, app):
         super().__init__(app)
         self._buckets: dict[str, tuple[float, float]] = {}
@@ -49,7 +56,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             tokens, ts = self._buckets.get(key, (float(cap), now))
             tokens = min(cap, tokens + (now - ts) * refill)
             if tokens < 1:
-                return JSONResponse({"error": "rate_limited"}, status_code=429,
-                                    headers={"Retry-After": "5"})
+                return JSONResponse({"error": "rate_limited"}, status_code=429, headers={"Retry-After": "5"})
             self._buckets[key] = (tokens - 1, now)
         return await call_next(request)

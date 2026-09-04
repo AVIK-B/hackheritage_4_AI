@@ -34,10 +34,12 @@ class AuditLedger:
             if not line.strip():
                 continue
             rec = json.loads(line)
-            blob = json.dumps({k: v for k, v in rec.items() if k != "record_hash"},
-                              sort_keys=True, separators=(",", ":"))
-            if rec.get("previous_hash") != prev or \
-               hashlib.sha256((prev + blob).encode()).hexdigest() != rec.get("record_hash"):
+            blob = json.dumps(
+                {k: v for k, v in rec.items() if k != "record_hash"}, sort_keys=True, separators=(",", ":")
+            )
+            if rec.get("previous_hash") != prev or hashlib.sha256((prev + blob).encode()).hexdigest() != rec.get(
+                "record_hash"
+            ):
                 return {"valid": False, "n": n, "last_hash": prev}
             prev, n = rec["record_hash"], n + 1
         return {"valid": True, "n": n, "last_hash": prev}
@@ -45,4 +47,5 @@ class AuditLedger:
 
 def os_fsync(f):
     import os
+
     os.fsync(f.fileno())

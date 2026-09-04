@@ -1,10 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "orchestrator"
+version = "1.1.0"
+description = "PS-26094 orchestration API"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
 [tool.ruff]
-line-length = 110
+line-length = 120
 target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "S", "SIM", "PERF", "RUF", "ISC"]
 ignore = ["BLE001"]  # intentional: fail-safe degradation paths catch broad, log, and degrade — never silent
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]            # asserts are the mechanism of pytest — bandit is for app code
+"src/data/**" = ["S311", "E501"] # seeded PRNG for synthetic corpora (determinism is the design); string-heavy builders
+"src/deployment/**" = ["S603"]   # Kaggle-only build script with fixed command lists

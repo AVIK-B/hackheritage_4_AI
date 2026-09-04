@@ -13,8 +13,13 @@ def _hard_high(v) -> bool:
         return False
 
 
-def evaluate(crisis: CrisisAssessment | None, fusion: FusionResult | None,
-             forecast: ForecastResult | None, signals: dict, cfg: dict) -> Decision:
+def evaluate(
+    crisis: CrisisAssessment | None,
+    fusion: FusionResult | None,
+    forecast: ForecastResult | None,
+    signals: dict,
+    cfg: dict,
+) -> Decision:
     """Pure, unit-tested, explainable. Two INDEPENDENT human-review triggers:
     T1 high score OR (moderate + low confidence); T2 forecast probability. Crisis preempts all."""
     P, ver = cfg["policies"], cfg.get("policy_version", "?")
@@ -25,8 +30,7 @@ def evaluate(crisis: CrisisAssessment | None, fusion: FusionResult | None,
     if fusion is None:  # degraded mode: downstream services unreachable
         hard = [k for k, v in signals.items() if v and _hard_high(v)]
         if hard:
-            return Decision(route="escalate", reasons=[f"degraded mode, hard signal high: {hard}"],
-                            policy_version=ver)
+            return Decision(route="escalate", reasons=[f"degraded mode, hard signal high: {hard}"], policy_version=ver)
         return Decision(route="routine", reasons=["degraded mode, no hard signals"], policy_version=ver)
 
     s, c = fusion.composite_score, fusion.confidence

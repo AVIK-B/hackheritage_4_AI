@@ -11,6 +11,7 @@ class IndicTranslator:
             import torch
             from IndicTransToolkit import IndicProcessor
             from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+
             self.torch = torch
             self.tok = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=True)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(MODEL, trust_remote_code=True).eval().cuda()
@@ -25,7 +26,7 @@ class IndicTranslator:
             return texts
         out = []
         for i in range(0, len(texts), self.bs):
-            batch = self.ip.preprocess_batch(texts[i:i + self.bs], src_lang="eng_Latn", tgt_lang=self.tgt)
+            batch = self.ip.preprocess_batch(texts[i : i + self.bs], src_lang="eng_Latn", tgt_lang=self.tgt)
             enc = self.tok(batch, return_tensors="pt", padding=True, truncation=True).to("cuda")
             with self.torch.no_grad():
                 gen = self.model.generate(**enc, num_beams=4, max_new_tokens=256)
@@ -36,11 +37,13 @@ class IndicTranslator:
 def translate_file(src: str, dst: str, field: str, tgt_lang: str = "hin_Deva") -> None:
     import json
     import pathlib
-    rows = [json.loads(l) for l in pathlib.Path(src).read_text().splitlines() if l.strip()]
+
+    rows = [json.loads(line) for line in pathlib.Path(src).read_text().splitlines() if line.strip()]
+
     tr = IndicTranslator(tgt_lang)
     texts = [r[field] for r in rows]
     translated = tr(texts) if tr.ok else texts
-    for r, t in zip(rows, translated):
+    for r, t in zip(rows, translated, strict=True):
         r[field] = t
         if tr.ok:
             r["lang"] = tgt_lang[:2]
@@ -50,4 +53,5 @@ def translate_file(src: str, dst: str, field: str, tgt_lang: str = "hin_Deva") -
 
 if __name__ == "__main__":
     import sys
+
     translate_file(sys.argv[1], sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else "target")

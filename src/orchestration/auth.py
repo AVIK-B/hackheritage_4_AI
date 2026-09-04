@@ -18,4 +18,5 @@ async def require(scope: str):
                     return role
                 raise HTTPException(403, f"key lacks '{scope}' scope")
         raise HTTPException(401, "invalid key")
+
     return dep
