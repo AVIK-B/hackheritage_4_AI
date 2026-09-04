@@ -1,19 +1,14 @@
-"""Unified PS-26094 job runner — pure Python, no IPython `!` magics.
+"""Unified PS-26094 job runner — pure Python, no IPython magics. VS Code + Kaggle.
 
-Works identically in VS Code and on Kaggle notebook cells:
-  VS Code:  python kaggle/runner.py train --adapter b
-  Kaggle:   python hackheritage_4_AI/kaggle/runner.py train --adapter b   (any cwd)
-
-Subcommands:
   install --kind {auto,kaggle,train,orch}
+  corpus  --adapter {a,b,both}
   train   --adapter {a,b} [--install]
   export  --adapter {a,b,all}
   eval    --kind {dialogue,summary} --model M [--base-url U] [--api-key K]
 
-Secrets: environment first (HF_TOKEN, GITHUB_PAT), then Kaggle Secrets.
-Kaggle auto-selects requirements-train-kaggle.txt (no torch — Kaggle's
-preinstalled torch+torchvision pair is version-matched; installing our own breaks it).
-"""
+data/ is gitignored, so corpora NEVER arrive via git clone — `train` auto-builds
+them (idempotent) before launching. Kaggle auto-uses requirements-train-kaggle.txt
+(no torch: Kaggle's preinstalled torch+torchvision pair is version-matched)."""
 import argparse
 import os
 import shutil
@@ -28,8 +23,16 @@ ON_KAGGLE = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE"))
 
 REQ_FILES = {
     "orch": "requirements-orch.txt",
-    "train": "requirements-train.txt",          # full set incl. torch — local GPU boxes only
-    "kaggle": "requirements-train-kaggle.txt",  # NO torch — Kaggle-safe
+    "train": "requirements-train.txt",
+    "kaggle": "requirements-train-kaggle.txt",
+}
+DATA_SENTINELS = {
+    "b": "data/processed/case_summary_train.jsonl",
+    "a": "data/processed/dialogue_train.jsonl",
+}
+CORPUS_CMDS = {
+    "b": ["src/data/build_case_summary_corpus.py", "--n", "8000"],
+    "a": ["src/data/build_dialogue_corpus.py", "--n-synth", "6000"],
 }
 
 
@@ -38,7 +41,7 @@ def get_secret(name: str) -> str | None:
     if val and val.strip():
         return val.strip()
     try:
-        from kaggle_secrets import UserSecretsClient  # importable only on Kaggle
+        from kaggle_secrets import UserSecretsClient
         return UserSecretsClient().get_secret(name).strip()
     except Exception:
         return None
@@ -50,8 +53,6 @@ def _run(cmd: list, cwd: Path | None = None) -> None:
 
 
 def find_repo_root() -> Path:
-    """Resolve the repo root regardless of cwd. Falls back to cloning if this
-    runner was invoked from a standalone copy."""
     root = Path(__file__).resolve().parents[1]
     if all((root / f).exists() for f in REQUIRED_FILES):
         return root
@@ -82,15 +83,27 @@ def install(kind: str, root: Path) -> None:
     if not (root / req).exists():
         raise SystemExit(f"{req} not found in {root}")
     _run([sys.executable, "-m", "pip", "install", "-q", "-r", req], cwd=root)
-    if kind == "kaggle":  # prove the preinstalled pair is intact
+    if kind == "kaggle":  # canary: preinstalled pair must be intact
         _run([sys.executable, "-c",
-              "import torch, torchvision, transformers, peft, bitsandbytes as b; "
+              "import torch, torchvision, transformers, peft; "
               "print('torch', torch.__version__, '| torchvision', torchvision.__version__, "
               "'| cuda', torch.cuda.is_available())"], cwd=root)
 
 
+def ensure_corpus(adapter: str, root: Path) -> None:
+    """Idempotent: build the corpus for this adapter if its sentinel file is missing."""
+    sentinel = root / DATA_SENTINELS[adapter]
+    if sentinel.exists():
+        print(f":: corpus present: {sentinel}")
+        return
+    script, *args = CORPUS_CMDS[adapter]
+    print(f":: data/ is gitignored — building corpus for adapter {adapter}")
+    _run([sys.executable, script, *args], cwd=root)
+
+
 def train(adapter: str, root: Path) -> None:
     ensure_hf_token()
+    ensure_corpus(adapter, root)
     _run([sys.executable, "src/training/train_sft.py",
           root / "configs" / f"adapter_{adapter}.yaml"], cwd=root)
 
@@ -112,6 +125,9 @@ def main() -> None:
     pi = sub.add_parser("install")
     pi.add_argument("--kind", choices=[*REQ_FILES, "auto"], default="auto")
 
+    pc = sub.add_parser("corpus")
+    pc.add_argument("--adapter", choices=["a", "b", "both"], default="both")
+
     pt = sub.add_parser("train")
     pt.add_argument("--adapter", choices=["a", "b"], required=True)
     pt.add_argument("--install", action="store_true")
@@ -131,6 +147,10 @@ def main() -> None:
 
     if args.cmd == "install":
         install(args.kind, root)
+    elif args.cmd == "corpus":
+        targets = ["a", "b"] if args.adapter == "both" else [args.adapter]
+        for t in targets:
+            ensure_corpus(t, root)
     elif args.cmd == "train":
         if args.install:
             install("auto", root)
