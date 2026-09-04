@@ -11,6 +11,7 @@ v1 defects fixed here:
   4. Self-audit: every generated row is re-checked — target labels re-derived and
      every numeric token in the target verified present in the input JSON
      (groundedness by construction)."""
+
 import argparse
 import json
 import pathlib
@@ -22,23 +23,36 @@ STAGES = ["FIR", "investigation", "trial", "compensation"]
 HARD = ["voice_stress_high", "threat_language_detected", "score_rising_trend", "hearing_imminent"]
 SOFT = ["sentiment_negative_mild", "voice_stress_mixed", "response_latency_up", "missed_checkins"]
 ACTIONS = {
-    "ESCALATE-24H": ("Schedule a counsellor check-in call within 24 hours; if "
-                     "threat_language_detected is active, notify the district protection "
-                     "officer per witness-protection protocol."),
-    "VERIFY-HUMAN-24H": ("Score is high but confidence is low — schedule a human check-in "
-                         "call within 24 hours to verify before escalation."),
-    "HUMAN-72H": ("Do not auto-escalate on this score alone. Assign a human check-in call "
-                  "within 72 hours to disambiguate."),
-    "HUMAN-48H": ("A threat/intimidation signal is present despite a moderate score — human "
-                  "check-in within 48 hours; screen for intimidation per protocol."),
-    "MONITOR-CLOSELY": ("Keep the case on the counsellor watchlist; no immediate escalation; "
-                        "re-evaluate after the next scheduled check-in."),
+    "ESCALATE-24H": (
+        "Schedule a counsellor check-in call within 24 hours; if "
+        "threat_language_detected is active, notify the district protection "
+        "officer per witness-protection protocol."
+    ),
+    "VERIFY-HUMAN-24H": (
+        "Score is high but confidence is low — schedule a human check-in "
+        "call within 24 hours to verify before escalation."
+    ),
+    "HUMAN-72H": (
+        "Do not auto-escalate on this score alone. Assign a human check-in call within 72 hours to disambiguate."
+    ),
+    "HUMAN-48H": (
+        "A threat/intimidation signal is present despite a moderate score — human "
+        "check-in within 48 hours; screen for intimidation per protocol."
+    ),
+    "MONITOR-CLOSELY": (
+        "Keep the case on the counsellor watchlist; no immediate escalation; "
+        "re-evaluate after the next scheduled check-in."
+    ),
     "ROUTINE": ("No escalation. Continue routine scheduled check-ins."),
-    "PROACTIVE-24H": ("The score alone is not elevated, but forecasted escalation probability "
-                      "crosses the alert threshold — schedule a proactive check-in within "
-                      "24 hours."),
-    "REQUEST FIELDS": ("Required triage fields are missing (composite score unavailable). "
-                       "Request them before triage; no escalation beyond routine monitoring."),
+    "PROACTIVE-24H": (
+        "The score alone is not elevated, but forecasted escalation probability "
+        "crosses the alert threshold — schedule a proactive check-in within "
+        "24 hours."
+    ),
+    "REQUEST FIELDS": (
+        "Required triage fields are missing (composite score unavailable). "
+        "Request them before triage; no escalation beyond routine monitoring."
+    ),
 }
 
 
@@ -71,18 +85,20 @@ def _fmt(x: float | None) -> str:
 def target(f: dict) -> str:
     label, action = decide(f)
     sigs = ", ".join(f["top_signals"]) or "no distinguishing signals"
-    parts = [f"Risk: {label} (composite {_fmt(f['composite_score'])}, "
-             f"confidence {_fmt(f['confidence'])}).",
-             f"Stage: {f['case_stage']}.", f"Key signals: {sigs}."]
+    parts = [
+        (f"Risk: {label} (composite {_fmt(f['composite_score'])}, confidence {_fmt(f['confidence'])})."),
+        f"Stage: {f['case_stage']}.",
+        f"Key signals: {sigs}.",
+    ]
     d = f["days_to_next_hearing"]
     if d is not None and d <= 7:
         parts.append(f"Hearing in {d} day(s) — expect elevated stress around the date.")
     if f["p_escalation"] is not None:
-        parts.append(f"Forecast: escalation probability {f['p_escalation']:.2f} over the "
-                     f"next 7 days.")
+        parts.append(f"Forecast: escalation probability {f['p_escalation']:.2f} over the next 7 days.")
     if f["errors"]:
-        parts.append(f"Note: some signals were unavailable at scoring time "
-                     f"({'; '.join(f['errors'])}) — interpret with caution.")
+        parts.append(
+            f"Note: some signals were unavailable at scoring time ({'; '.join(f['errors'])}) — interpret with caution."
+        )
     parts.append(f"Recommended action: {ACTIONS[action]}")
     return " ".join(parts)
 
@@ -111,14 +127,16 @@ def sample_row(rng: random.Random) -> dict:
         "case_stage": rng.choice(STAGES),
         "days_to_next_hearing": None if rng.random() < 0.40 else rng.randint(1, 45),
         "composite_score": sample_score(rng, band),
-        "confidence": (None if rng.random() < 0.15 else
-                       round(rng.uniform(0.15, 0.44), 2) if rng.random() < 0.30
-                       else round(rng.uniform(0.45, 0.95), 2)),
+        "confidence": (
+            None
+            if rng.random() < 0.15
+            else round(rng.uniform(0.15, 0.44), 2)
+            if rng.random() < 0.30
+            else round(rng.uniform(0.45, 0.95), 2)
+        ),
         "top_signals": [],
-        "p_escalation": (round(rng.uniform(0.05, 0.95), 2)
-                         if rng.random() < 0.35 and band != "missing" else None),
-        "errors": (rng.choice([["signal:voice:unavailable"], ["forecast:unavailable"]])
-                   if rng.random() < 0.07 else []),
+        "p_escalation": (round(rng.uniform(0.05, 0.95), 2) if rng.random() < 0.35 and band != "missing" else None),
+        "errors": (rng.choice([["signal:voice:unavailable"], ["forecast:unavailable"]]) if rng.random() < 0.07 else []),
     }
     pool = HARD if band == "high" else (SOFT + HARD[:2] if band == "moderate" else SOFT)
     f["top_signals"] = rng.sample(pool, k=rng.randint(1, min(3, len(pool))))
@@ -135,11 +153,13 @@ def _audit(rows: list[dict]) -> None:
         facts = json.loads(r["messages"][1]["content"])
         tgt = r["messages"][2]["content"]
         label, _ = decide(facts)
-        assert tgt.startswith(f"Risk: {label}"), f"label drift: {label} vs {tgt[:40]}"
+        if not tgt.startswith(f"Risk: {label}"):
+            raise ValueError(f"label drift: expected {label!r}, got {tgt[:40]!r}")
         known = {_fmt(facts[k]) for k in ("composite_score", "confidence", "p_escalation")}
         known |= {str(facts["days_to_next_hearing"])}
         for num in re.findall(r"\d+\.\d+", tgt):
-            assert num in known, f"ungrounded number {num} in: {tgt[:80]}"
+            if num not in known:
+                raise ValueError(f"ungrounded number {num} in target: {tgt[:80]!r}")
         cats[label] = cats.get(label, 0) + 1
     print("coverage:", json.dumps(cats, sort_keys=True))
 
@@ -147,9 +167,16 @@ def _audit(rows: list[dict]) -> None:
 def main(n: int, seed: int, out: str) -> None:
     rng = random.Random(seed)
     sysprompt = pathlib.Path("prompts/casewriter_system.txt").read_text(encoding="utf-8").strip()
-    rows = [{"messages": [{"role": "system", "content": sysprompt},
-                          {"role": "user", "content": json.dumps(f := sample_row(rng), ensure_ascii=False)},
-                          {"role": "assistant", "content": target(f)}]} for _ in range(n)]
+    rows = [
+        {
+            "messages": [
+                {"role": "system", "content": sysprompt},
+                {"role": "user", "content": json.dumps(f := sample_row(rng), ensure_ascii=False)},
+                {"role": "assistant", "content": target(f)},
+            ]
+        }
+        for _ in range(n)
+    ]
     _audit(rows)
     rng.shuffle(rows)
     root = pathlib.Path(out)
