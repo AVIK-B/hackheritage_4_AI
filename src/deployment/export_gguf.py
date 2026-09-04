@@ -1,6 +1,8 @@
 """Kaggle-only: merge LoRA -> GGUF f16 -> Q8_0 -> private HF repo.
   python src/deployment/export_gguf.py --adapter all   # or b | a"""
-import argparse, os, subprocess
+import argparse
+import os
+import subprocess
 
 BASE = "sarvamai/sarvam-1"
 JOBS = {
@@ -14,7 +16,7 @@ def sh(cmd: list) -> None:
 
 
 def export(which: str) -> None:
-    adapter, outname = JOBS[which]
+    adapter, _ = JOBS[which]
     merged, f16 = f"merged_{which}", f"{which}-f16.gguf"
     sh(["python", "src/training/merge_adapter.py", "--base", BASE, "--adapter", adapter, "--out", merged])
     if not os.path.isdir("llama.cpp"):

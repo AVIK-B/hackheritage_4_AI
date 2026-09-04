@@ -1,7 +1,15 @@
 import time
+from pathlib import Path
+
 import structlog
-from openai import OpenAI, APIConnectionError, APITimeoutError, RateLimitError
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+from openai import APIConnectionError, APITimeoutError, OpenAI, RateLimitError
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
+
 from src.common.resilience import breakers
 
 log = structlog.get_logger()

@@ -1,6 +1,5 @@
 """Batch en->indic translation via AI4Bharat IndicTrans2. Runs on Kaggle GPU.
 If the toolkit is unavailable, returns inputs unchanged so pipelines never block."""
-import itertools
 
 MODEL = "ai4bharat/indictrans2-en-indic-1B"
 
@@ -10,8 +9,8 @@ class IndicTranslator:
         self.ok = False
         try:
             import torch
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
             from IndicTransToolkit import IndicProcessor
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
             self.torch = torch
             self.tok = AutoTokenizer.from_pretrained(MODEL, trust_remote_code=True)
             self.model = AutoModelForSeq2SeqLM.from_pretrained(MODEL, trust_remote_code=True).eval().cuda()
@@ -35,7 +34,8 @@ class IndicTranslator:
 
 
 def translate_file(src: str, dst: str, field: str, tgt_lang: str = "hin_Deva") -> None:
-    import json, pathlib
+    import json
+    import pathlib
     rows = [json.loads(l) for l in pathlib.Path(src).read_text().splitlines() if l.strip()]
     tr = IndicTranslator(tgt_lang)
     texts = [r[field] for r in rows]

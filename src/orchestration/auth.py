@@ -1,6 +1,8 @@
 import hmac
+
 from fastapi import HTTPException, Security
 from fastapi.security import APIKeyHeader
+
 from src.common.settings import settings
 
 _header = APIKeyHeader(name="X-API-Key", auto_error=False)

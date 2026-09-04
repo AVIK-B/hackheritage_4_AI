@@ -1,8 +1,8 @@
-import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from src.orchestration import auth
+
 from src.common.settings import settings
+from src.orchestration import auth
 
 app = FastAPI()
 

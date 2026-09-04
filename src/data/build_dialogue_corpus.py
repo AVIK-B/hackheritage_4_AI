@@ -1,12 +1,17 @@
 """(prefix, target) pairs for adapter A: EmpatheticDialogues (+optional translation)
 + synthetic bilingual check-ins. Exploded per assistant turn, deduped, 95/5 split."""
-import argparse, hashlib, json, pathlib, random, re
+import argparse
+import hashlib
+import json
+import pathlib
+import random
+import re
 
 SYSTEM = pathlib.Path("prompts/sahayak_system.txt").read_text().strip()
 
 CRISIS_TARGETS = [
-    "I'm really glad you told me. You shouldn't have to face this alone. Would you like me to "
-    "connect you with a counsellor right now? They can help, and I'll stay here with you."]
+    ("I'm really glad you told me. You shouldn't have to face this alone. Would you like me to "
+    "connect you with a counsellor right now? They can help, and I'll stay here with you.")]
 USER_LINES = [
     "aaj court ka notice aaya, bahut darr lag raha hai",
     "I couldn't sleep last night, hearing is in 3 days",
@@ -14,13 +19,13 @@ USER_LINES = [
     "I feel like giving up on the case",
     "mujhe lagta hai mujhe akela chhod diya gaya hai"]
 GOOD_REPLIES = [
-    "That sounds really heavy. It makes complete sense to feel scared before a hearing date. "
-    "What's weighing on you most right now?",
-    "Not sleeping before something this important is exhausting. Would it help to talk through "
-    "what's worrying you, or would you prefer something calming instead?",
+    ("That sounds really heavy. It makes complete sense to feel scared before a hearing date. "
+    "What's weighing on you most right now?"),
+    ("Not sleeping before something this important is exhausting. Would it help to talk through "
+    "what's worrying you, or would you prefer something calming instead?"),
     "Wanting space is okay — you don't owe anyone your story. I'm here whenever you feel like talking.",
-    "Feeling like giving up doesn't mean you are giving up. That feeling is a signal you're carrying "
-    "a lot. Would it help to have a counsellor walk through the next steps with you?"]
+    ("Feeling like giving up doesn't mean you are giving up. That feeling is a signal you're carrying "
+    "a lot. Would it help to have a counsellor walk through the next steps with you?")]
 
 
 def norm(t: str) -> str:
@@ -33,7 +38,7 @@ def to_pair(messages: list) -> list[dict]:
         if m["role"] == "assistant":
             prefix = messages[:i]
             if prefix and prefix[0]["role"] != "system":
-                prefix = [{"role": "system", "content": SYSTEM}] + prefix
+                prefix = [{"role": "system", "content": SYSTEM}, *prefix]
             pairs.append({"prefix": prefix, "target": m["content"]})
     return pairs
 
@@ -45,7 +50,7 @@ def load_public() -> list[dict]:
         for r in ds.select(range(20000)):
             by_conv.setdefault(r["conv_id"], []).append((r["utterance_idx"], r["utterance"]))
         out = []
-        for _, turns in by_conv.items():
+        for turns in by_conv.values():
             msgs = [{"role": "system", "content": SYSTEM}]
             for _, u in sorted(turns):
                 msgs.append({"role": "user" if len(msgs) % 2 else "assistant", "content": u})

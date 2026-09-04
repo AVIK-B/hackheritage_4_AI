@@ -1,10 +1,19 @@
 """QLoRA SFT with prefix/completion masking (-100) — model learns to emit ONLY assistant text."""
-import os, yaml, torch, argparse
+import os
 from dataclasses import dataclass
+
+import torch
+import yaml
 from datasets import load_dataset
-from transformers import (AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig,
-                          Trainer, TrainingArguments, set_seed)
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+from transformers import (
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    BitsAndBytesConfig,
+    Trainer,
+    TrainingArguments,
+    set_seed,
+)
 
 
 def build_collator(tok):
@@ -41,7 +50,9 @@ def get_ds(path, tok, max_len, fmt):
 
 
 def main(cfg_path):
-    cfg = yaml.safe_load(open(cfg_path)); t = cfg["training"]
+    with open(cfg_path, encoding="utf-8") as fh:
+        cfg = yaml.safe_load(fh)
+    t = cfg["training"]
     set_seed(t["seed"])
     tok = AutoTokenizer.from_pretrained(cfg["base_model"])
     bnb = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4",
@@ -60,8 +71,8 @@ def main(cfg_path):
     try:  # MLflow optional — never blocks a local run
         import mlflow
         mlflow.set_experiment(cfg["run_name"]); kwargs["report_to"] = "mlflow"
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[mlflow] unavailable, continuing without experiment tracking: {exc}")
 
     args = TrainingArguments(
         output_dir=t["output_dir"], num_train_epochs=t["num_train_epochs"],

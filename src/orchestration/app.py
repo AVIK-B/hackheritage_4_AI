@@ -1,6 +1,13 @@
-import json, os, queue, threading, time, uuid
+import json
+import queue
+import threading
+import time
+import uuid
 from contextlib import asynccontextmanager
-import httpx, psycopg_pool, structlog
+
+import httpx
+import psycopg_pool
+import structlog
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -8,13 +15,17 @@ from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import BaseModel, Field
+
 from src.common.llm_client import LLMClient
 from src.common.logging import configure_logging
 from src.common.settings import settings
 from src.orchestration import auth
 from src.orchestration.graph import build
-from src.orchestration.middleware import (RateLimitMiddleware, RequestContextMiddleware,
-                                          SecurityHeadersMiddleware)
+from src.orchestration.middleware import (
+    RateLimitMiddleware,
+    RequestContextMiddleware,
+    SecurityHeadersMiddleware,
+)
 from src.orchestration.nodes_io import init_ledger
 
 configure_logging()
@@ -82,9 +93,8 @@ def _invoke(init: dict, stream_q: queue.Queue | None = None) -> tuple[dict, dict
     cfg = {"configurable": {"thread_id": thread_id}}
     if stream_q is not None:
         init = {**init, "stream_q": stream_q}
-    with _state["gate"]:
-        with GRAPH_LAT.time():
-            final = _state["graph"].invoke(init, cfg)
+    with _state["gate"], GRAPH_LAT.time():
+        final = _state["graph"].invoke(init, cfg)
     INTERACTIONS.labels(final["decision"].route, init["channel"]).inc()
     return final, cfg
 

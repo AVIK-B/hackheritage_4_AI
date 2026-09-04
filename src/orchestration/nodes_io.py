@@ -1,6 +1,9 @@
 import time
-import httpx, structlog
+
+import httpx
+import structlog
 from tenacity import retry, stop_after_attempt, wait_fixed
+
 from src.common.resilience import breakers
 from src.common.safety import assess_crisis
 from src.orchestration.audit import AuditLedger
@@ -26,7 +29,7 @@ def _post(http: httpx.Client, url: str, payload: dict, timeout: float, breaker_n
         r.raise_for_status()
         br.record(True)
         return r.json()
-    except Exception as e:
+    except Exception:
         br.record(False)
         raise
 
@@ -40,7 +43,7 @@ def _get(http: httpx.Client, url: str, timeout: float, breaker_name: str) -> dic
         r.raise_for_status()
         br.record(True)
         return r.json()
-    except Exception as e:
+    except Exception:
         br.record(False)
         raise
 

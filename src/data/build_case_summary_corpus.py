@@ -1,6 +1,9 @@
 """Synthetic (case_facts JSON -> counsellor recommendation) pairs. Seeded, deterministic.
 Families: escalation | ambiguous (low-confidence) | insufficient (missing fields)."""
-import argparse, json, pathlib, random
+import argparse
+import json
+import pathlib
+import random
 
 STAGES = ["FIR", "investigation", "trial", "compensation"]
 LANGS = ["hi", "bn", "ta", "te", "mr", "en"]

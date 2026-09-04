@@ -1,7 +1,12 @@
-import contextvars, threading, time, uuid
+import contextvars
+import threading
+import time
+import uuid
+
 import structlog
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
+
 from src.common.settings import settings
 
 request_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("request_id", default="-")

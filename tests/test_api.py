@@ -1,9 +1,11 @@
 import os
+
 os.environ.update({"ORCH_ENV": "dev",
                    "ORCH_API_KEYS": '{"victim":"vk_t","counsellor":"ck_t","ops":"ok_t"}',
                    "ORCH_LLM_BASE_URL": "http://127.0.0.1:9",   # dead on purpose
                    "ORCH_AUDIT_PATH": "./data/test_ledger.jsonl"})
 from fastapi.testclient import TestClient
+
 from src.orchestration.app import app
 
 H = {"X-API-Key": "vk_t"}

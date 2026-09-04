@@ -1,4 +1,9 @@
-from src.orchestration.state import CrisisAssessment, Decision, FusionResult, ForecastResult
+from src.orchestration.state import (
+    CrisisAssessment,
+    Decision,
+    ForecastResult,
+    FusionResult,
+)
 
 
 def _hard_high(v) -> bool:

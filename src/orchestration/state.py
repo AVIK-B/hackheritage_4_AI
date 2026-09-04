@@ -1,5 +1,6 @@
 import operator
 from typing import Annotated, Any, TypedDict
+
 from pydantic import BaseModel
 
 

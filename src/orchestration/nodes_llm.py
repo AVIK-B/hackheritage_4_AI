@@ -1,4 +1,8 @@
-import json, queue, structlog
+import json
+import queue
+
+import structlog
+
 from src.common.safety import FALLBACK_REPLY, guard_reply
 
 log = structlog.get_logger()
