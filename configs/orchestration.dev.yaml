@@ -1,0 +1,15 @@
+# Reference template for local dev. The API reads env vars (see .env.example);
+# these values document what .env should contain in this environment.
+env: dev
+llm:
+  base_url: http://localhost:11434/v1        # local Ollama (Sarvam-1 GGUF Q4)
+  model_map: { dialogue: sahayak, summary: casewriter }
+  timeout_s: 25
+services:                                     # teammates' local mocks or dead URLs
+  scoring: http://localhost:8100
+  fusion: http://localhost:8200
+  forecast: http://localhost:8300
+  backend: http://localhost:8400
+checkpointer: none                            # MemorySaver in dev (state lost on restart — fine)
+audit_path: ./data/audit/ledger.jsonl
+policies: { escalate_score: 0.75, escalate_confidence_floor: 0.45, forecast_escalation_prob: 0.60 }

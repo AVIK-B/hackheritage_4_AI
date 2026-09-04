@@ -1,0 +1,26 @@
+run_name: adapter_a_sahayak_v1
+base_model: sarvamai/sarvam-1
+data:
+  format: prefix_completion
+  train: data/processed/dialogue_train.jsonl
+  val: data/processed/dialogue_val.jsonl
+training:
+  output_dir: adapters/adapter_a
+  num_train_epochs: 2
+  per_device_train_batch_size: 4
+  gradient_accumulation_steps: 8
+  learning_rate: 1.5e-4
+  warmup_ratio: 0.03
+  lr_scheduler_type: cosine
+  max_seq_len: 2048
+  seed: 42
+  logging_steps: 20
+  eval_steps: 200
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
+upload:
+  repo_id: AVIK-B/ps26094-lora
+  path_in_repo: adapter_a

@@ -1,0 +1,15 @@
+# Reference template for the Azure B2as_v2 VM (docker-compose.cpu.yml sets these as env).
+env: prod
+llm:
+  base_url: http://ollama:11434/v1           # in-compose Ollama with your fine-tuned GGUFs
+  model_map: { dialogue: sahayak, summary: casewriter }
+  timeout_s: 25
+services:
+  scoring: http://scoring:8100
+  fusion: http://fusion:8200
+  forecast: http://forecast:8300
+  backend: http://backend:8400
+checkpointer:
+  dsn: postgresql://orch:${DB_PASSWORD}@db:5432/orch
+audit_path: /data/audit/ledger.jsonl          # volume-mounted, survives container rebuilds
+policies: { escalate_score: 0.75, escalate_confidence_floor: 0.45, forecast_escalation_prob: 0.60 }

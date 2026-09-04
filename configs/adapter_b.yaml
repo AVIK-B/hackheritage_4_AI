@@ -16,8 +16,11 @@ training:
   seed: 42
   logging_steps: 20
   eval_steps: 200
-lora: { r: 32, alpha: 64, dropout: 0.05,
-        target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj] }
+lora:
+  r: 32
+  alpha: 64
+  dropout: 0.05
+  target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 upload:
-  repo_id: <you>/ps26094-lora
+  repo_id: AVIK-B/ps26094-lora
   path_in_repo: adapter_b

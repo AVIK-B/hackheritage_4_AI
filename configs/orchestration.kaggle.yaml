@@ -1,0 +1,5 @@
+# Reference for Kaggle eval sessions: vLLM serves in-notebook on localhost.
+# run_evals.py takes --base-url directly; this file documents it.
+llm:
+  base_url: http://localhost:8000/v1         # in-notebook vLLM with the adapter under test
+  model_map: { dialogue: sahayak, summary: casewriter }
