@@ -100,9 +100,10 @@ def ensure_corpus(adapter: str, root: Path) -> None:
     print(f":: data/ is gitignored — building corpus for adapter {adapter}")
     _run([sys.executable, script, *args], cwd=root)
 
-
 def train(adapter: str, root: Path) -> None:
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")   # one T4, no DP, no pipeline split
     ensure_hf_token()
+    
     ensure_corpus(adapter, root)
     _run([sys.executable, "src/training/train_sft.py",
           root / "configs" / f"adapter_{adapter}.yaml"], cwd=root)

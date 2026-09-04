@@ -72,7 +72,7 @@ def main(cfg_path):
         bnb_4bit_compute_dtype=torch.float16,
     )
     model = AutoModelForCausalLM.from_pretrained(
-        cfg["base_model"], quantization_config=bnb, device_map="auto", torch_dtype=torch.float16, trust_remote_code=True
+        cfg["base_model"], quantization_config=bnb, device_map={"": 0}, torch_dtype=torch.float16, trust_remote_code=True
     )
     model.config.use_cache = False
     model = prepare_model_for_kbit_training(model)
