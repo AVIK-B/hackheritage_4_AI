@@ -1,95 +1,144 @@
-"""Kaggle helper for PS-26094 training, export, and eval jobs.
+"""Unified PS-26094 job runner — pure Python, no IPython `!` magics.
 
-Examples:
-  python kaggle/runner.py train --adapter a
-  python kaggle/runner.py train --adapter b
-  python kaggle/runner.py export --adapter all
-  python kaggle/runner.py eval --kind dialogue --model sahayak --base-url http://localhost:8000/v1
+Works identically in VS Code and on Kaggle notebook cells:
+  VS Code:  python kaggle/runner.py train --adapter b
+  Kaggle:   python hackheritage_4_AI/kaggle/runner.py train --adapter b   (any cwd)
+
+Subcommands:
+  install --kind {auto,kaggle,train,orch}
+  train   --adapter {a,b} [--install]
+  export  --adapter {a,b,all}
+  eval    --kind {dialogue,summary} --model M [--base-url U] [--api-key K]
+
+Secrets: environment first (HF_TOKEN, GITHUB_PAT), then Kaggle Secrets.
+Kaggle auto-selects requirements-train-kaggle.txt (no torch — Kaggle's
+preinstalled torch+torchvision pair is version-matched; installing our own breaks it).
 """
-
 import argparse
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-ADAPTER_CONFIG = {
-    "a": ROOT / "configs" / "adapter_a.yaml",
-    "b": ROOT / "configs" / "adapter_b.yaml",
+REPO_URL = os.environ.get("REPO_URL", "https://github.com/AVIK-B/hackheritage_4_AI.git")
+REPO_DIR = Path(REPO_URL).stem
+REQUIRED_FILES = ("configs/adapter_a.yaml", "src/training/train_sft.py")
+ON_KAGGLE = bool(os.environ.get("KAGGLE_KERNEL_RUN_TYPE"))
+
+REQ_FILES = {
+    "orch": "requirements-orch.txt",
+    "train": "requirements-train.txt",          # full set incl. torch — local GPU boxes only
+    "kaggle": "requirements-train-kaggle.txt",  # NO torch — Kaggle-safe
 }
 
 
-def run(cmd: list[str], env: dict[str, str] | None = None) -> None:
-    print("::", " ".join(str(part) for part in cmd), flush=True)
-    subprocess.run([str(part) for part in cmd], cwd=ROOT, env=env, check=True)  # noqa: S603
+def get_secret(name: str) -> str | None:
+    val = os.environ.get(name)
+    if val and val.strip():
+        return val.strip()
+    try:
+        from kaggle_secrets import UserSecretsClient  # importable only on Kaggle
+        return UserSecretsClient().get_secret(name).strip()
+    except Exception:
+        return None
 
 
-def install(kind: str) -> None:
-    reqs = ["requirements-orch.txt"]
-    if kind in {"train", "all"}:
-        reqs.append("requirements-train.txt")
-    for req in reqs:
-        run([sys.executable, "-m", "pip", "install", "-r", ROOT / req])
+def _run(cmd: list, cwd: Path | None = None) -> None:
+    print("::", " ".join(str(c) for c in cmd), flush=True)
+    subprocess.run([str(c) for c in cmd], cwd=cwd, check=True)  # noqa: S603 - fixed arg lists
 
 
-def train(adapter: str) -> None:
-    run([sys.executable, "src/training/train_sft.py", ADAPTER_CONFIG[adapter]])
+def find_repo_root() -> Path:
+    """Resolve the repo root regardless of cwd. Falls back to cloning if this
+    runner was invoked from a standalone copy."""
+    root = Path(__file__).resolve().parents[1]
+    if all((root / f).exists() for f in REQUIRED_FILES):
+        return root
+    alt = Path.cwd() / REPO_DIR
+    if all((alt / f).exists() for f in REQUIRED_FILES):
+        return alt
+    pat = get_secret("GITHUB_PAT")
+    if not pat:
+        raise SystemExit(f"repo markers not found near {root}; clone {REPO_URL} or set GITHUB_PAT")
+    url = f"https://x-access-token:{pat}@{REPO_URL.split('https://')[-1]}"
+    shutil.rmtree(REPO_DIR, ignore_errors=True)
+    _run(["git", "clone", "--depth", "1", url])
+    return Path.cwd() / REPO_DIR
 
 
-def export(adapter: str) -> None:
-    run([sys.executable, "src/deployment/export_gguf.py", "--adapter", adapter])
+def ensure_hf_token() -> None:
+    tok = get_secret("HF_TOKEN")
+    if tok:
+        os.environ["HF_TOKEN"] = tok
+    if not os.environ.get("HF_TOKEN"):
+        print(":: WARNING: HF_TOKEN unavailable — HF uploads will fail")
 
 
-def evaluate(kind: str, model: str, base_url: str, api_key: str) -> None:
-    run(
-        [
-            sys.executable,
-            "src/evals/run_evals.py",
-            "--base-url",
-            base_url,
-            "--kind",
-            kind,
-            "--model",
-            model,
-            "--api-key",
-            api_key,
-        ]
-    )
+def install(kind: str, root: Path) -> None:
+    if kind == "auto":
+        kind = "kaggle" if ON_KAGGLE else "orch"
+    req = REQ_FILES[kind]
+    if not (root / req).exists():
+        raise SystemExit(f"{req} not found in {root}")
+    _run([sys.executable, "-m", "pip", "install", "-q", "-r", req], cwd=root)
+    if kind == "kaggle":  # prove the preinstalled pair is intact
+        _run([sys.executable, "-c",
+              "import torch, torchvision, transformers, peft, bitsandbytes as b; "
+              "print('torch', torch.__version__, '| torchvision', torchvision.__version__, "
+              "'| cuda', torch.cuda.is_available())"], cwd=root)
+
+
+def train(adapter: str, root: Path) -> None:
+    ensure_hf_token()
+    _run([sys.executable, "src/training/train_sft.py",
+          root / "configs" / f"adapter_{adapter}.yaml"], cwd=root)
+
+
+def export(adapter: str, root: Path) -> None:
+    ensure_hf_token()
+    _run([sys.executable, "src/deployment/export_gguf.py", "--adapter", adapter], cwd=root)
+
+
+def evaluate(kind: str, model: str, base_url: str, api_key: str, root: Path) -> None:
+    _run([sys.executable, "src/evals/run_evals.py", "--base-url", base_url,
+          "--kind", kind, "--model", model, "--api-key", api_key], cwd=root)
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Kaggle orchestration helper")
-    sub = parser.add_subparsers(dest="cmd", required=True)
+    p = argparse.ArgumentParser(description="PS-26094 job runner (VS Code + Kaggle)")
+    sub = p.add_subparsers(dest="cmd", required=True)
 
-    p_install = sub.add_parser("install")
-    p_install.add_argument("--kind", choices=["orch", "train", "all"], default="all")
+    pi = sub.add_parser("install")
+    pi.add_argument("--kind", choices=[*REQ_FILES, "auto"], default="auto")
 
-    p_train = sub.add_parser("train")
-    p_train.add_argument("--adapter", choices=["a", "b"], required=True)
-    p_train.add_argument("--install", action="store_true")
+    pt = sub.add_parser("train")
+    pt.add_argument("--adapter", choices=["a", "b"], required=True)
+    pt.add_argument("--install", action="store_true")
 
-    p_export = sub.add_parser("export")
-    p_export.add_argument("--adapter", choices=["a", "b", "all"], required=True)
+    pe = sub.add_parser("export")
+    pe.add_argument("--adapter", choices=["a", "b", "all"], required=True)
 
-    p_eval = sub.add_parser("eval")
-    p_eval.add_argument("--kind", choices=["dialogue", "summary"], required=True)
-    p_eval.add_argument("--model", required=True)
-    p_eval.add_argument("--base-url", default=os.environ.get("EVAL_BASE_URL", "http://localhost:8000/v1"))
-    p_eval.add_argument("--api-key", default=os.environ.get("OPENAI_API_KEY", "EMPTY"))
+    pv = sub.add_parser("eval")
+    pv.add_argument("--kind", choices=["dialogue", "summary"], required=True)
+    pv.add_argument("--model", required=True)
+    pv.add_argument("--base-url", default=os.environ.get("EVAL_BASE_URL", "http://localhost:8000/v1"))
+    pv.add_argument("--api-key", default=os.environ.get("OPENAI_API_KEY", "EMPTY"))
 
-    args = parser.parse_args()
+    args = p.parse_args()
+    root = find_repo_root()
+    print(f":: repo root: {root} | on_kaggle={ON_KAGGLE}")
 
     if args.cmd == "install":
-        install(args.kind)
+        install(args.kind, root)
     elif args.cmd == "train":
         if args.install:
-            install("train")
-        train(args.adapter)
+            install("auto", root)
+        train(args.adapter, root)
     elif args.cmd == "export":
-        export(args.adapter)
+        export(args.adapter, root)
     elif args.cmd == "eval":
-        evaluate(args.kind, args.model, args.base_url, args.api_key)
+        evaluate(args.kind, args.model, args.base_url, args.api_key, root)
 
 
 if __name__ == "__main__":

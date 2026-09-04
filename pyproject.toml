@@ -23,3 +23,4 @@ ignore = ["BLE001"]  # intentional: fail-safe degradation paths catch broad, log
 "tests/**" = ["S101"]            # asserts are the mechanism of pytest — bandit is for app code
 "src/data/**" = ["S311", "E501"] # seeded PRNG for synthetic corpora (determinism is the design); string-heavy builders
 "src/deployment/**" = ["S603"]   # Kaggle-only build script with fixed command lists
+"kaggle/**" = ["S603"]   # runner executes fixed, repo-controlled command lists

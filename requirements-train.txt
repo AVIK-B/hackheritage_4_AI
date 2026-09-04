@@ -1,4 +1,8 @@
-torch>=2.3,<2.5
+# Generic training deps (local/GPU boxes with your own CUDA torch).
+# KAGGLE NOTE: do NOT pip-install torch/torchvision there — Kaggle's preinstalled
+# torch+torchvision are version-matched; installing our own breaks torchvision ops.
+# On Kaggle use requirements-train-kaggle.txt (no torch).
+torch>=2.3
 transformers>=4.51
 datasets>=2.19
 accelerate>=0.31
