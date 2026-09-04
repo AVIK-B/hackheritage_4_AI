@@ -23,5 +23,5 @@ lora:
   dropout: 0.05
   target_modules: [q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj]
 upload:
-  repo_id: AVIK-B/ps26094-lora
+  repo_id: avik112/ps26094-lora
   path_in_repo: adapter_b
