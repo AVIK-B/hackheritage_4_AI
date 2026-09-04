@@ -1,9 +1,10 @@
 """QLoRA SFT with prefix/completion masking (-100) — model learns to emit ONLY assistant text."""
 
 import os
+from dataclasses import dataclass
 
 os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")  # the OOM hint, applied
-from dataclasses import dataclass
+
 
 import torch
 import yaml
