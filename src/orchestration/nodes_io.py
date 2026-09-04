@@ -154,11 +154,12 @@ def victim_handoff(state, *, cfg) -> dict:
 
     crisis = state.get("crisis")
     hits = ", ".join(crisis.hits) if crisis and crisis.hits else "pattern match"
-    decision = Decision(route="crisis",
-                        reasons=[f"crisis precheck: {crisis.source} ({hits})"] if crisis else ["crisis precheck"],
-                        policy_version=cfg.get("policy_version", "?"))
-    return {"reply": CRISIS_COPY.get(state.get("language", "en"), CRISIS_COPY["en"]),
-            "decision": decision}
+    decision = Decision(
+        route="crisis",
+        reasons=[f"crisis precheck: {crisis.source} ({hits})"] if crisis else ["crisis precheck"],
+        policy_version=cfg.get("policy_version", "?"),
+    )
+    return {"reply": CRISIS_COPY.get(state.get("language", "en"), CRISIS_COPY["en"]), "decision": decision}
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)

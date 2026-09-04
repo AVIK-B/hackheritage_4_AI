@@ -34,7 +34,8 @@ def build(cfg: dict, http, llm, checkpointer=None):
     g.add_conditional_edges(
         "crisis_precheck",
         lambda s: "crisis" if s["crisis"].is_crisis else "fanout",
-        {"crisis": "victim_handoff", "fanout": "fanout"})
+        {"crisis": "victim_handoff", "fanout": "fanout"},
+    )
     g.add_edge("victim_handoff", "dispatch_crisis")
     g.add_edge("dispatch_crisis", "audit")
     g.add_edge("fanout", "sentiment")
@@ -47,10 +48,11 @@ def build(cfg: dict, http, llm, checkpointer=None):
     g.add_conditional_edges(
         "decide",
         lambda s: "summarize" if s["decision"].route == "escalate" else "respond",
-        {"summarize": "summarize", "respond": "respond"})
+        {"summarize": "summarize", "respond": "respond"},
+    )
     g.add_edge("summarize", "dispatch_escalation")
     g.add_edge("dispatch_escalation", "audit")
     g.add_edge("respond", "audit")
     g.add_edge("audit", END)
 
-    return g.compile(checkpointer=checkpointer, interrupt_before=["dispatch_escalation"]) 
+    return g.compile(checkpointer=checkpointer, interrupt_before=["dispatch_escalation"])
