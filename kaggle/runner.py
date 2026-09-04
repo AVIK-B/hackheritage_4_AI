@@ -31,8 +31,8 @@ DATA_SENTINELS = {
     "a": "data/processed/dialogue_train.jsonl",
 }
 CORPUS_CMDS = {
-    "b": ["src/data/build_case_summary_corpus.py", "--n", "8000"],
-    "a": ["src/data/build_dialogue_corpus.py", "--n-synth", "6000"],
+    "b": ["src/data/build_case_summary_corpus.py", "--n", "12000"],
+    "a": ["src/data/build_dialogue_corpus.py", "--n-synth", "9000"],
 }
 
 

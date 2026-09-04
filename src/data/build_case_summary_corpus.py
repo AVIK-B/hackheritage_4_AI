@@ -163,10 +163,19 @@ def _audit(rows: list[dict]) -> None:
         cats[label] = cats.get(label, 0) + 1
     print("coverage:", json.dumps(cats, sort_keys=True))
 
-
+def _check_prompt_thresholds(sysprompt: str) -> None:
+    """The prompt's stated bands must match the corpus constants exactly —
+    drift here means the writer learns a policy the orchestrator doesn't run."""
+    stated = set(re.findall(r"0\.\d{2}", sysprompt))
+    for t in (T_ESCALATE, T_MODERATE, T_CONF, T_FORECAST):
+        if f"{t:.2f}" not in stated:
+            raise ValueError(
+                f"prompt/corpus drift: threshold {t:.2f} not stated in "
+                f"casewriter_system.txt — sync prompts and constants")
 def main(n: int, seed: int, out: str) -> None:
     rng = random.Random(seed)
     sysprompt = pathlib.Path("prompts/casewriter_system.txt").read_text(encoding="utf-8").strip()
+    _check_prompt_thresholds(sysprompt)
     rows = [
         {
             "messages": [
