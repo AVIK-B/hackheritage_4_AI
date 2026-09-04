@@ -1,6 +1,8 @@
 """QLoRA SFT with prefix/completion masking (-100) — model learns to emit ONLY assistant text."""
 
 import os
+
+os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")  # the OOM hint, applied
 from dataclasses import dataclass
 
 import torch
@@ -49,14 +51,25 @@ def encode(tok, prefix_msgs, target, max_len):
 def get_ds(path, tok, max_len, fmt):
     ds = load_dataset("json", data_files=path, split="train")
 
+    degenerate = {"n": 0}
+
     def m(ex):
         if fmt == "prefix_completion":
             e = encode(tok, ex["prefix"], ex["target"], max_len)
-        else:  # messages
+        else:
             e = encode(tok, ex["messages"][:-1], ex["messages"][-1]["content"], max_len)
-        return e or {"input_ids": [tok.eos_token_id], "labels": [tok.eos_token_id]}
+        if e is None:
+            degenerate["n"] += 1
+            return {"input_ids": [tok.eos_token_id], "labels": [tok.eos_token_id]}
+        return e
 
-    return ds.map(m, remove_columns=ds.column_names, num_proc=4)
+    out = ds.map(m, remove_columns=ds.column_names, num_proc=4)
+    if degenerate["n"]:
+        raise SystemExit(
+            f"DATA LOSS: {degenerate['n']} examples' prefixes exceed max_seq_len={max_len} "
+            f"and were fully masked. Raise max_seq_len or shorten the prompt — DO NOT TRAIN."
+        )
+    return out
 
 
 def main(cfg_path):
