@@ -3,9 +3,6 @@
 import os
 from dataclasses import dataclass
 
-os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")  # the OOM hint, applied
-
-
 import torch
 import yaml
 from datasets import load_dataset

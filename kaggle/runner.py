@@ -101,9 +101,9 @@ def ensure_corpus(adapter: str, root: Path) -> None:
     _run([sys.executable, script, *args], cwd=root)
 
 def train(adapter: str, root: Path) -> None:
-    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")   # one T4, no DP, no pipeline split
+    os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")   # one T4 — no DP, no pipeline split
+    os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")  # OOM-fragmentation guard
     ensure_hf_token()
-    
     ensure_corpus(adapter, root)
     _run([sys.executable, "src/training/train_sft.py",
           root / "configs" / f"adapter_{adapter}.yaml"], cwd=root)
