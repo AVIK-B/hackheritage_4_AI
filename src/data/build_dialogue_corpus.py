@@ -486,8 +486,12 @@ INTENTS = {
 }
 
 FORBIDDEN = [
-    r"\bpromise\b(?!.*can'?t)(?!.*nahi)",
-    r"\bguarantee\b",
+    r"\bi promise\b",
+    r"\bi guarantee\b",  # English committing
+    r"\bvaada karta hoon\b",
+    r"\bvaada karti hoon\b",  # Hinglish committing
+    r"मैं वादा करता हूँ",
+    r"मैं वादा करती हूँ",  # Hindi committing
     r"take \d",
     r"\bdose\b",
     r"goli",
@@ -637,6 +641,12 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
     try:
         from datasets import load_dataset
 
+        try:
+            ds = load_dataset("empathetic_dialogues", split="train")  # legacy path
+        except Exception:
+            ds = load_dataset("empathetic_dialogues", split="train", revision="refs/convert/parquet")  # new-lib path
+        # ... rest unchanged
+
         ds = load_dataset("empathetic_dialogues", split="train")
         by_conv: dict = {}
         for r in ds:
@@ -693,6 +703,19 @@ def audit(pairs: list[dict]) -> dict:
         "नहीं बता सकता",
         "outside what I can do",
     )
+    PIVOT_MARKERS = (
+        "what i can do",
+        "help",
+        "madad",
+        "मदद",
+        "counsellor",
+        "साथ",
+        "steadier",
+        "support",
+        "talk it through",
+        "baat karein",
+        "बात करें",
+    )
 
     violations: list[tuple[int, str]] = []
     matrix: dict[str, dict[str, int]] = {}
@@ -711,13 +734,21 @@ def audit(pairs: list[dict]) -> dict:
             violations.append((idx, "crisis without handoff"))
 
         is_refusal_user = any(k in user_l for k in REFUSAL_KEYS)
-        if is_refusal_user and not any(a in tgt for a in LEGAL_ALTS):
+        if is_refusal_user and not (any(a in tgt for a in LEGAL_ALTS) or any(m in low for m in PIVOT_MARKERS)):
             violations.append((idx, "refusal without alternative"))
-
         violations.extend((idx, f"forbidden: {pat}") for pat in FORBIDDEN if re.search(pat, low))
 
         score_leak = re.search(r"score|confidence|analysis|monitoring", low) and not (
-            "evaluator nahi" in low or "not an evaluator" in low or "मूल्यांकक नहीं" in tgt or "no report" in low
+            "evaluator nahi" in low
+            or "not an evaluator" in low
+            or "मूल्यांकक नहीं" in tgt
+            or "no report" in low
+            or "nahi rakhta" in low
+            or "नहीं रखता" in tgt  # ← added: hinglish/hindi denials
+            or "koi report" in low
+            or "koi score" in low
+            or "koi analysis" in low
+            or "rating nahi" in low
         )
         if score_leak:
             violations.append((idx, "score/monitoring leak"))

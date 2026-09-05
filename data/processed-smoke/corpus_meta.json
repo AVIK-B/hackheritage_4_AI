@@ -1,0 +1,26 @@
+{
+  "seed": 42,
+  "n_threads": 300,
+  "ed_cap": 1000,
+  "total_pairs": 170,
+  "val_pairs": 8,
+  "lang_matrix": {
+    "en": {
+      "support": 41,
+      "crisis": 17,
+      "refusal": 5
+    },
+    "hi": {
+      "support": 30,
+      "crisis": 10,
+      "refusal": 1
+    },
+    "hinglish": {
+      "crisis": 18,
+      "support": 46,
+      "refusal": 2
+    }
+  },
+  "generator": "v3-intent-archetypes",
+  "system_prompt_sha256": "f88ff13ed3603a1b"
+}
