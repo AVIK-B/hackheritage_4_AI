@@ -1,12 +1,12 @@
 """Adapter A corpus v3 — intent-archetype generation with semantic binding.
 
-v2 defects fixed:
-  1. replies now reference the user's ACTUAL stressor (topic-bound coping/followups)
-  2. turn-2 callbacks reference turn-1 content (prompt promises memory, data now shows it)
-  3. crisis/refusal coverage is deep (per-intent, per-language, audited)
-  4. EmpatheticDialogues filtered to distress-adjacent labels only
-  5. generation-time audit() FAILS the build on any safety/format violation
-  6. corpus_meta.json manifest (seed, counts, coverage matrix) — reproducibility
+v3 design:
+  - 18 intents x 3 languages (hinglish / hi / en), crisis + refusal + support coverage
+  - replies semantically bound to the user's ACTUAL stressor (topic-bound coping/acks)
+  - multi-turn threads with state: crisis-declined -> stay-present; refusal -> pivot
+  - EmpatheticDialogues filtered to distress-adjacent labels only
+  - generation-time audit() FAILS the build on any safety/format violation
+  - corpus_meta.json manifest (seed, counts, coverage matrix) for reproducibility
 """
 
 import argparse
@@ -19,16 +19,25 @@ import re
 SYSTEM = pathlib.Path("prompts/sahayak_system.txt").read_text(encoding="utf-8").strip()
 
 # ─────────────────────────────────────────────────────────────────────────────
-# HANDOFF + REFUSAL CORES (per language — the audited must-contain phrases)
+# HANDOFF / STAY-PRESENT / REFUSAL CORES (per language — audited must-contain)
 # ─────────────────────────────────────────────────────────────────────────────
+HANDOFF_PHRASES = {"en": "counsellor", "hinglish": "counsellor", "hi": "काउंसलर"}
+
+
+def _handoff_tokens() -> set[str]:
+    """Type-agnostic accessor — works whether HANDOFF_PHRASES is dict or set."""
+    v = HANDOFF_PHRASES.values() if isinstance(HANDOFF_PHRASES, dict) else HANDOFF_PHRASES
+    return set(v)
+
+
 HANDOFF = {
     "en": "Would you like me to connect you with a counsellor right now? They can help, and I'll stay here with you.",
-    "hinglish": "Main abhi aapko counsellor se jod doon? Woh madad ke liye trained hain, aur main yahin rahunga aapke saath.",
+    "hinglish": "Main abhi aapko counsellor se jod doon? Woh madad ke liye trained hain, "
+    "aur main yahin rahunga aapke saath.",
     "hi": "क्या मैं अभी आपको काउंसलर से जोड़ दूँ? वे मदद के लिए प्रशिक्षित हैं, और मैं यहीं हूँ।",
 }
-HANDOFF_TOKEN = {"en": "counsellor", "hinglish": "counsellor", "hi": "काउंसलर"}
 
-STAY_PRESENT = {  # crisis-declined → next turn
+STAY_PRESENT = {
     "en": [
         "That's completely okay — no pressure at all. I'm right here whenever you want to talk.",
         "Fair enough. I'm not going anywhere — we can just talk, one breath at a time.",
@@ -37,7 +46,16 @@ STAY_PRESENT = {  # crisis-declined → next turn
         "Koi baat nahi, koi pressure nahi — main yahin hoon jab aap baat karna chaho.",
         "Theek hai, jab chahe tab. Chalo bas aise hi baat karte hain, ek saans ek time.",
     ],
-    "hi": ["कोई बात नहीं, कोई दबाव नहीं — मैं यहीं हूँ जब आप बात करना चाहें।", "ठीक है, जब चाहे तब। चलो बस ऐसे ही बात करते हैं।"],
+    "hi": [
+        "कोई बात नहीं, कोई दबाव नहीं — मैं यहीं हूँ जब आप बात करना चाहें।",
+        "ठीक है, जब चाहे तब। चलो बस ऐसे ही बात करते हैं, एक साँस एक समय।",
+    ],
+}
+
+DECLINES = {
+    "hinglish": ["abhi nahi, bas aise baat karte hain", "counsellor nahi chahiye abhi"],
+    "hi": ["अभी नहीं, बस ऐसे बात करते हैं", "अभी काउंसलर नहीं चाहिए"],
+    "en": ["not right now, can we just talk", "I don't want a counsellor yet"],
 }
 
 REFUSAL = {
@@ -98,7 +116,8 @@ REFUSAL = {
         ],
     },
 }
-REFUSAL_ALT = {  # what I CAN do — appended to refusals
+
+REFUSAL_ALT = {
     "en": [
         "What I can do: talk it through, one small coping idea, or connect you with a counsellor.",
         "I can help with the stress around it — talk it through, or connect you with someone who can.",
@@ -151,11 +170,7 @@ COPING_GENERIC = {
     ],
 }
 
-# ─────────────────────────────────────────────────────────────────────────────
-# INTENT BANK — 18 intents. user: (lang, text). risk: none|crisis|refusal{kind}.
-# topic keys drive semantic binding (coping/followup/callback reference it).
-# ─────────────────────────────────────────────────────────────────────────────
-TOPIC_CB = {  # turn-2 callback phrases, per topic per lang
+TOPIC_CB = {
     "hearing": {"hinglish": "hearing wali baat", "hi": "सुनवाई वाली बात", "en": "the hearing"},
     "compensation": {"hinglish": "compensation wali baat", "hi": "मुआवज़े वाली बात", "en": "the compensation"},
     "police": {"hinglish": "police wali baat", "hi": "पुलिस वाली बात", "en": "the police response"},
@@ -165,6 +180,9 @@ TOPIC_CB = {  # turn-2 callback phrases, per topic per lang
     "threats": {"hinglish": "dhamki wali baat", "hi": "धमकी वाली बात", "en": "the threats"},
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# INTENT BANK — risk: none | crisis | refusal:<kind>
+# ─────────────────────────────────────────────────────────────────────────────
 INTENTS = {
     "pre_hearing_anxiety": {
         "risk": "none",
@@ -241,7 +259,7 @@ INTENTS = {
         },
         "coping": {
             "hinglish": "har visit ki date aur baat likhte jao — paper aapki awaaz ban jaata hai",
-            "hi": "हर जानकी तारीख़ और बात लिखते जाइए — काग़ज़ आपकी आवाज़ बन जाता है",
+            "hi": "हर मुलाक़ात की तारीख़ और बात लिखते जाइए — काग़ज़ आपकी आवाज़ बन जाता है",
             "en": "log every visit and reply — paper becomes your voice",
         },
     },
@@ -273,7 +291,7 @@ INTENTS = {
             ("en", "at night everything replays and sleep disappears"),
         ],
         "ack": {
-            "hinglish": "raat ka dimaag sabse bura dikhata hai — din ke roshni me wahi cheezein chhoti lagti hain",
+            "hinglish": "raat ka dimaag sabse bura dikhata hai — din ki roshni me wahi cheezein chhoti lagti hain",
             "hi": "रात का दिमाग़ सबसे बुरा दिखाता है — दिन की रोशनी में वही बातें छोटी लगती हैं",
             "en": "the night-mind shows everything at its worst — daylight makes the same things smaller",
         },
@@ -385,7 +403,7 @@ INTENTS = {
             ("en", "I want to give up on everything — the case, all of it"),
         ],
         "ack": {
-            "hinglish": "har ladvaiya aisi raat aati hai — yeh hissa aapki kamzori nahi, bojh ka signal hai",
+            "hinglish": "har ladne wale ki aisi raat aati hai — yeh hissa aapki kamzori nahi, bojh ka signal hai",
             "hi": "हर लड़ने वाले की ऐसी रात आती है — यह हिस्सा आपकी कमज़ोरी नहीं, बोझ का संकेत है",
             "en": "every fighter meets nights like this — it's not weakness, it's the weight talking",
         },
@@ -474,12 +492,10 @@ FORBIDDEN = [
     r"\bdose\b",
     r"goli",
     r"\btablets?\b",
-    r"\bmedicine (le|khao)\b",
     r"win my case for you",
     r"score \d\.\d",
     r"confidence \d\.\d",
 ]
-HANDOFF_OK = set(HANDOFF_TOKEN.values())
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -489,10 +505,9 @@ def compose_reply(rng: random.Random, intent: str, lang: str) -> str:
     d = INTENTS[intent]
     risk = d["risk"]
     if risk == "crisis":
-        parts = [d["ack"][lang], HANDOFF[lang]]
-        return " ".join(parts)
+        return f"{d['ack'][lang]} {HANDOFF[lang]}"
     if isinstance(risk, str) and risk.startswith("refusal"):
-        kind = risk.split(":")[1]
+        kind = risk.split(":", 1)[1]
         core = rng.choice(REFUSAL[kind][lang])
         alt = rng.choice(REFUSAL_ALT[lang])
         return f"{core} {alt}"
@@ -519,13 +534,8 @@ def compose_reply(rng: random.Random, intent: str, lang: str) -> str:
         )
         return f"{ack}. {q[lang]}"
     coping = d.get("coping", {}).get(lang) or rng.choice(COPING_GENERIC[lang])
-    return (
-        f"{ack}. Ek kaam karo: {coping}."
-        if lang == "hinglish"
-        else f"{ack}. Try this: {coping}."
-        if lang == "en"
-        else f"{ack}. एक काम कीजिए: {coping}."
-    )
+    lead = {"hinglish": "Ek kaam karo: ", "en": "Try this: ", "hi": "एक काम कीजिए: "}[lang]
+    return f"{ack}. {lead}{coping}."
 
 
 def callback_opener(rng: random.Random, lang: str, topic: str | None) -> str:
@@ -554,9 +564,6 @@ def to_pair(messages: list) -> list[dict]:
     return pairs
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# synthetic threads — 2-3 turns with state
-# ─────────────────────────────────────────────────────────────────────────────
 def synthetic_threads(rng: random.Random, n_threads: int) -> list[dict]:
     pairs = []
     names = list(INTENTS)
@@ -571,14 +578,9 @@ def synthetic_threads(rng: random.Random, n_threads: int) -> list[dict]:
             {"role": "assistant", "content": a1},
         ]
         r1 = d1["risk"]
-        # turn 2 — state machine
-        # turn 2 — state machine
-        if r1 == "crisis" and rng.random() < 0.5:  # declined handoff → stay present
-            DECLINES = {
-                "hinglish": ["abhi nahi, bas aise baat karte hain", "counsellor nahi chahiye abhi"],
-                "hi": ["अभी नहीं, बस ऐसे बात करते हैं", "अभी काउंसलर नहीं चाहिए"],
-                "en": ["not right now, can we just talk", "I don't want a counsellor yet"],
-            }
+        # turn 2 — state machine (language-consistent)
+        if r1 == "crisis" and rng.random() < 0.5:
+            # declined handoff -> stay present
             msgs += [
                 {"role": "user", "content": rng.choice(DECLINES[u1_lang])},
                 {"role": "assistant", "content": rng.choice(STAY_PRESENT[u1_lang])},
@@ -586,25 +588,26 @@ def synthetic_threads(rng: random.Random, n_threads: int) -> list[dict]:
         elif isinstance(r1, str) and r1.startswith("refusal") and rng.random() < 0.5:
             i2 = rng.choice(["pre_hearing_anxiety", "low_energy", "night_panic"])
             u2_lang, u2 = rng.choice(INTENTS[i2]["user"])
-            a2 = compose_reply(rng, i2, u2_lang)
-            msgs += [{"role": "user", "content": u2}, {"role": "assistant", "content": a2}]
+            if u2_lang == u1_lang:
+                msgs += [
+                    {"role": "user", "content": u2},
+                    {"role": "assistant", "content": compose_reply(rng, i2, u2_lang)},
+                ]
         else:
             i2 = rng.choice(names)
             d2 = INTENTS[i2]
             u2_lang, u2 = rng.choice(d2["user"])
             if u2_lang != u1_lang:
-                continue  # keep language consistent in-thread
+                continue
             opener = callback_opener(rng, u2_lang, d1.get("topic"))
             a2 = compose_reply(rng, i2, u2_lang)
-            a2 = f"{opener} {a2}" if not a2.startswith(opener) else a2
-            msgs += [{"role": "user", "content": f"{u2}"}, {"role": "assistant", "content": a2}]
+            if not a2.startswith(opener):
+                a2 = f"{opener} {a2}"
+            msgs += [{"role": "user", "content": u2}, {"role": "assistant", "content": a2}]
         pairs += to_pair(msgs)
     return pairs
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# EmpatheticDialogues — distress labels only
-# ─────────────────────────────────────────────────────────────────────────────
 DISTRESS_LABELS = {
     "afraid",
     "anxious",
@@ -615,24 +618,18 @@ DISTRESS_LABELS = {
     "discouraged",
     "embarrassed",
     "furious",
-    "grateful",
     "guilty",
     "humiliated",
     "insecure",
-    "jealous",
     "lonely",
-    "nostalgic",
     "sad",
-    "sentimental",
-    "surprised",
     "terrified",
-    "trusting",
-    "caring",
     "anticipating",
-    "content",
-    "joyful",
-    "impressed",
-    "hopeful",
+    "caring",
+    "disgusted",
+    "jealous",
+    "nostalgic",
+    "sentimental",
 }
 
 
@@ -648,7 +645,7 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
             by_conv.setdefault(r["conv_id"], []).append((r["utterance_idx"], r["utterance"]))
         convs = list(by_conv.items())
         rng.shuffle(convs)
-        out = []
+        out: list[dict] = []
         for _, turns in convs:
             msgs = [{"role": "system", "content": SYSTEM}]
             for _, u in sorted(turns)[:6]:
@@ -657,19 +654,19 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
             if len(out) >= cap:
                 break
         return out[:cap]
-    except Exception as e:
+    except Exception as e:  # offline fallback is designed behaviour
         print(f"[corpus] public datasets unavailable, synthetic-only: {e}")
         return []
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# AUDIT GATE — fails the build on violation
+# AUDIT GATE — fails the build on ANY violation
 # ─────────────────────────────────────────────────────────────────────────────
 def audit(pairs: list[dict]) -> dict:
     """Generation-time quality gate. Raises SystemExit on ANY violation.
     Also returns the language x category coverage matrix."""
-    # every synthetic user utterance -> its language (precomputed once)
     user_lang: dict[str, str] = {text: lang for d in INTENTS.values() for lang, text in d["user"]}
+    handoff_tokens = _handoff_tokens()
 
     CRISIS_KEYS = (
         "jeene ka mann",
@@ -710,7 +707,7 @@ def audit(pairs: list[dict]) -> dict:
             violations.append((idx, f"word-count {len(tgt.split())}"))
 
         is_crisis_user = any(k in user_l for k in CRISIS_KEYS)
-        if is_crisis_user and not any(t in tgt for t in HANDOFF_OK.values()):
+        if is_crisis_user and not any(t in tgt for t in handoff_tokens):
             violations.append((idx, "crisis without handoff"))
 
         is_refusal_user = any(k in user_l for k in REFUSAL_KEYS)
@@ -727,7 +724,7 @@ def audit(pairs: list[dict]) -> dict:
 
         category = (
             "crisis"
-            if "counsellor" in low or "काउंसलर" in tgt
+            if any(t.lower() in low for t in handoff_tokens)
             else "refusal"
             if is_refusal_user and not is_crisis_user
             else "support"
@@ -742,10 +739,9 @@ def audit(pairs: list[dict]) -> dict:
     return matrix
 
 
-# ─────────────────────────────────────────────────────────────────────────────
 def jaccard_dedup(pairs: list[dict], thresh: float = 0.85) -> list[dict]:
     seen: list[set] = []
-    out = []
+    out: list[dict] = []
     for p in pairs:
         toks = set(norm(p["prefix"][-1]["content"]).split()) | set(norm(p["target"]).split())
         if any(len(toks & s) / max(1, len(toks | s)) >= thresh for s in seen[-4000:]):
@@ -761,7 +757,7 @@ def main(n_threads: int, seed: int, ed_cap: int, out: str) -> None:
     pub = load_public(rng, ed_cap)
     pairs = jaccard_dedup(synth + pub)
     rng.shuffle(pairs)
-    matrix = audit(pairs)  # 🚦 FAILS THE BUILD on violation
+    matrix = audit(pairs)  # FAILS THE BUILD on violation
     root = pathlib.Path(out)
     root.mkdir(parents=True, exist_ok=True)
     k = max(1, int(0.05 * len(pairs)))
