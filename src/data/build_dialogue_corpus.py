@@ -674,6 +674,9 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
 # ─────────────────────────────────────────────────────────────────────────────
 def audit(pairs: list[dict]) -> dict:
     """Generation-time quality gate. Raises SystemExit on ANY violation.
+    Per-source thresholds: synthetic pairs 10-90 words (our safety surface, strict),
+    ED pairs 3-90 words (public generic data, relaxed style rule).
+    Safety checks (handoff/refusal/forbidden/leak) are IDENTICAL for both sources.
     Also returns the language x category coverage matrix."""
     user_lang: dict[str, str] = {text: lang for d in INTENTS.values() for lang, text in d["user"]}
     handoff_tokens = _handoff_tokens()
@@ -725,11 +728,19 @@ def audit(pairs: list[dict]) -> dict:
         lang = user_lang.get(user, "en")
         low = tgt.lower()
         user_l = user.lower()
+        source = p.get("source", "synthetic")
 
-        if not 10 <= len(tgt.split()) <= 90:
-            violations.append((idx, f"word-count {len(tgt.split())}"))
+        # style rule — per-source threshold (safety rules below are source-blind)
+        min_words = 3 if source == "ed" else 10
+        if not min_words <= len(tgt.split()) <= 90:
+            violations.append((idx, f"word-count {len(tgt.split())} (source={source}, min={min_words})"))
 
         is_crisis_user = any(k in user_l for k in CRISIS_KEYS)
+        if source == "ed" and is_crisis_user:
+            # ED is generic public data — crisis keys must never originate there.
+            # If this fires, the public dataset contains distress-crisis text that
+            # our synthetic pipeline did not author: investigate before training.
+            violations.append((idx, "ED pair tripped crisis keys — data contamination, investigate"))
         if is_crisis_user and not any(t in tgt for t in handoff_tokens):
             violations.append((idx, "crisis without handoff"))
 
@@ -744,7 +755,7 @@ def audit(pairs: list[dict]) -> dict:
             or "मूल्यांकक नहीं" in tgt
             or "no report" in low
             or "nahi rakhta" in low
-            or "नहीं रखता" in tgt  # ← added: hinglish/hindi denials
+            or "नहीं रखता" in tgt
             or "koi report" in low
             or "koi score" in low
             or "koi analysis" in low
@@ -764,7 +775,11 @@ def audit(pairs: list[dict]) -> dict:
         matrix[lang][category] = matrix[lang].get(category, 0) + 1
 
     if violations:
-        for v in violations[:20]:
+        from collections import Counter
+
+        by_kind = Counter(k for _, k in violations)
+        print("violation summary by kind:", dict(by_kind))
+        for v in violations[:50]:
             print("AUDIT VIOLATION:", v)
         raise SystemExit(f"corpus audit FAILED: {len(violations)} violations — fix before training")
     return matrix
@@ -785,7 +800,11 @@ def jaccard_dedup(pairs: list[dict], thresh: float = 0.85) -> list[dict]:
 def main(n_threads: int, seed: int, ed_cap: int, out: str) -> None:
     rng = random.Random(seed)
     synth = synthetic_threads(rng, n_threads)
+    for p in synth:
+        p["source"] = "synthetic"
     pub = load_public(rng, ed_cap)
+    for p in pub:
+        p["source"] = "ed"
     pairs = jaccard_dedup(synth + pub)
     rng.shuffle(pairs)
     matrix = audit(pairs)  # FAILS THE BUILD on violation
@@ -799,6 +818,8 @@ def main(n_threads: int, seed: int, ed_cap: int, out: str) -> None:
         "n_threads": n_threads,
         "ed_cap": ed_cap,
         "total_pairs": len(pairs),
+        "synthetic_pairs": len(synth),
+        "ed_pairs": len(pub),
         "val_pairs": k,
         "lang_matrix": matrix,
         "generator": "v3-intent-archetypes",

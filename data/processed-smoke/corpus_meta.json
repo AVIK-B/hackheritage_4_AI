@@ -3,6 +3,8 @@
   "n_threads": 300,
   "ed_cap": 1000,
   "total_pairs": 170,
+  "synthetic_pairs": 305,
+  "ed_pairs": 0,
   "val_pairs": 8,
   "lang_matrix": {
     "en": {
