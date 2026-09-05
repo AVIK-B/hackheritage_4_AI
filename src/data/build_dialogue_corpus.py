@@ -679,7 +679,12 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
             out += to_pair(msgs)
             if len(out) >= cap:
                 break
-        out = [p for p in out if len(p["target"].split()) >= 3]  # drop micro-utterance pairs
+        COMMITTING = (r"\bi promise\b", r"\bi guarantee\b", r"\bvaada karta", r"\bvaada karti", r"वादा करता")
+        out = [
+            p
+            for p in out
+            if len(p["target"].split()) >= 3 and not any(re.search(pat, p["target"].lower()) for pat in COMMITTING)
+        ]
         return out[:cap]
     except Exception as e:  # offline fallback is designed behaviour
         print(f"[corpus] public datasets unavailable, synthetic-only: {e}")
