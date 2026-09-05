@@ -1,0 +1,24 @@
+{
+  "groundedness_unsupported_max": 0.01,
+  "detail": [
+    {
+      "unsupported": [
+        "0.77"
+      ],
+      "out": "Risk: HIGH (composite 0.77, confidence 0.63). Stage: compensation. Key signals: voice_stress_high, score_rising_trend. Forecast: escalation probability 0.12 ove",
+      "facts": {
+        "case_id": "CASE-13594",
+        "case_stage": "compensation",
+        "days_to_next_hearing": 36,
+        "composite_score": 0.775,
+        "confidence": 0.63,
+        "top_signals": [
+          "voice_stress_high",
+          "score_rising_trend"
+        ],
+        "p_escalation": 0.12,
+        "errors": []
+      }
+    }
+  ]
+}
