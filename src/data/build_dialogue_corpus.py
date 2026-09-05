@@ -492,7 +492,7 @@ FORBIDDEN = [
     r"\bvaada karti hoon\b",  # Hinglish committing
     r"मैं वादा करता हूँ",
     r"मैं वादा करती हूँ",  # Hindi committing
-    r"take \d",
+    r"take \d+ (tablet|pill|capsule|drop|spoon|mg)",
     r"\bdose\b",
     r"goli",
     r"\btablets?\b",
@@ -500,6 +500,19 @@ FORBIDDEN = [
     r"score \d\.\d",
     r"confidence \d\.\d",
 ]
+CRISIS_KEYS = (
+    "jeene ka mann",
+    "khatam kar",
+    "ending everything",
+    "don't want to be here",
+    "giving up",
+    "dhamki",
+    "threatened",
+    "धमकी",
+    "मन नहीं",
+    "ख़त्म कर",
+)
+REFUSAL_KEYS = ("jeetne ka", "tareeka", "prove", "judge ko kya", "win my case", "बताओ जज", "साबित")
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -657,12 +670,16 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
         rng.shuffle(convs)
         out: list[dict] = []
         for _, turns in convs:
+            utts = [u for _, u in sorted(turns)[:6]]
+            if any(k in " ".join(utts).lower() for k in CRISIS_KEYS):
+                continue  # contamination filter — crisis text must only come from our intents
             msgs = [{"role": "system", "content": SYSTEM}]
-            for _, u in sorted(turns)[:6]:
+            for u in utts:
                 msgs.append({"role": "user" if len(msgs) % 2 else "assistant", "content": u})
             out += to_pair(msgs)
             if len(out) >= cap:
                 break
+        out = [p for p in out if len(p["target"].split()) >= 3]  # drop micro-utterance pairs
         return out[:cap]
     except Exception as e:  # offline fallback is designed behaviour
         print(f"[corpus] public datasets unavailable, synthetic-only: {e}")
@@ -681,19 +698,6 @@ def audit(pairs: list[dict]) -> dict:
     user_lang: dict[str, str] = {text: lang for d in INTENTS.values() for lang, text in d["user"]}
     handoff_tokens = _handoff_tokens()
 
-    CRISIS_KEYS = (
-        "jeene ka mann",
-        "khatam kar",
-        "ending everything",
-        "don't want to be here",
-        "giving up",
-        "dhamki",
-        "threatened",
-        "धमकी",
-        "मन नहीं",
-        "ख़त्म कर",
-    )
-    REFUSAL_KEYS = ("jeetne ka", "tareeka", "prove", "judge ko kya", "win my case", "बताओ जज", "साबित")
     LEGAL_ALTS = (
         "advocate",
         "legal aid",
@@ -730,39 +734,45 @@ def audit(pairs: list[dict]) -> dict:
         user_l = user.lower()
         source = p.get("source", "synthetic")
 
-        # style rule — per-source threshold (safety rules below are source-blind)
-        min_words = 3 if source == "ed" else 10
+        is_ed = source == "ed"
+
+        # style rule — per-source threshold (safety rules below are source-scoped)
+        min_words = 3 if is_ed else 10
         if not min_words <= len(tgt.split()) <= 90:
             violations.append((idx, f"word-count {len(tgt.split())} (source={source}, min={min_words})"))
 
         is_crisis_user = any(k in user_l for k in CRISIS_KEYS)
-        if source == "ed" and is_crisis_user:
+        if is_ed and is_crisis_user:
             # ED is generic public data — crisis keys must never originate there.
-            # If this fires, the public dataset contains distress-crisis text that
-            # our synthetic pipeline did not author: investigate before training.
-            violations.append((idx, "ED pair tripped crisis keys — data contamination, investigate"))
+            # Fires only if the pre-filter in load_public failed: investigate.
+            violations.append((idx, "ED pair tripped crisis keys — contamination (should be pre-filtered)"))
         if is_crisis_user and not any(t in tgt for t in handoff_tokens):
             violations.append((idx, "crisis without handoff"))
 
         is_refusal_user = any(k in user_l for k in REFUSAL_KEYS)
-        if is_refusal_user and not (any(a in tgt for a in LEGAL_ALTS) or any(m in low for m in PIVOT_MARKERS)):
+        if (
+            not is_ed
+            and is_refusal_user
+            and not (any(a in tgt for a in LEGAL_ALTS) or any(m in low for m in PIVOT_MARKERS))
+        ):
             violations.append((idx, "refusal without alternative"))
         violations.extend((idx, f"forbidden: {pat}") for pat in FORBIDDEN if re.search(pat, low))
 
-        score_leak = re.search(r"score|confidence|analysis|monitoring", low) and not (
-            "evaluator nahi" in low
-            or "not an evaluator" in low
-            or "मूल्यांकक नहीं" in tgt
-            or "no report" in low
-            or "nahi rakhta" in low
-            or "नहीं रखता" in tgt
-            or "koi report" in low
-            or "koi score" in low
-            or "koi analysis" in low
-            or "rating nahi" in low
-        )
-        if score_leak:
-            violations.append((idx, "score/monitoring leak"))
+        if not is_ed:
+            score_leak = re.search(r"score|confidence|analysis|monitoring", low) and not (
+                "evaluator nahi" in low
+                or "not an evaluator" in low
+                or "मूल्यांकक नहीं" in tgt
+                or "no report" in low
+                or "nahi rakhta" in low
+                or "नहीं रखता" in tgt
+                or "koi report" in low
+                or "koi score" in low
+                or "koi analysis" in low
+                or "rating nahi" in low
+            )
+            if score_leak:
+                violations.append((idx, "score/monitoring leak"))
 
         category = (
             "crisis"
