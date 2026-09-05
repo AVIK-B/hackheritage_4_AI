@@ -32,7 +32,7 @@ DATA_SENTINELS = {
 }
 CORPUS_CMDS = {
     "b": ["src/data/build_case_summary_corpus.py", "--n", "12000"],
-    "a": ["src/data/build_dialogue_corpus.py", "--n-synth", "9000"],
+    "a": ["src/data/build_dialogue_corpus.py", "--n-threads", "6000", "--ed-cap", "8000"],
 }
 
 

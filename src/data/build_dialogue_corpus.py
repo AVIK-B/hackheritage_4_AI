@@ -572,18 +572,15 @@ def synthetic_threads(rng: random.Random, n_threads: int) -> list[dict]:
         ]
         r1 = d1["risk"]
         # turn 2 — state machine
+        # turn 2 — state machine
         if r1 == "crisis" and rng.random() < 0.5:  # declined handoff → stay present
+            DECLINES = {
+                "hinglish": ["abhi nahi, bas aise baat karte hain", "counsellor nahi chahiye abhi"],
+                "hi": ["अभी नहीं, बस ऐसे बात करते हैं", "अभी काउंसलर नहीं चाहिए"],
+                "en": ["not right now, can we just talk", "I don't want a counsellor yet"],
+            }
             msgs += [
-                {
-                    "role": "user",
-                    "content": rng.choice(
-                        {
-                            "hinglish": ["abhi nahi, bas aise baat karte hain", "counsellor nahi chahiye abhi"],
-                            "hi": ["अभी नहीं, बस ऐसे बात करते हैं", "अभी काउंसलर नहीं चाहिए"],
-                            "en": ["not right now, can we just talk", "I don't want a counsellor yet"],
-                        }
-                    )[u1_lang],
-                },
+                {"role": "user", "content": rng.choice(DECLINES[u1_lang])},
                 {"role": "assistant", "content": rng.choice(STAY_PRESENT[u1_lang])},
             ]
         elif isinstance(r1, str) and r1.startswith("refusal") and rng.random() < 0.5:
