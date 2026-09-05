@@ -669,93 +669,75 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
 # AUDIT GATE — fails the build on violation
 # ─────────────────────────────────────────────────────────────────────────────
 def audit(pairs: list[dict]) -> dict:
-    violations = []
-    matrix: dict = {}
+    """Generation-time quality gate. Raises SystemExit on ANY violation.
+    Also returns the language x category coverage matrix."""
+    # every synthetic user utterance -> its language (precomputed once)
+    user_lang: dict[str, str] = {text: lang for d in INTENTS.values() for lang, text in d["user"]}
+
+    CRISIS_KEYS = (
+        "jeene ka mann",
+        "khatam kar",
+        "ending everything",
+        "don't want to be here",
+        "giving up",
+        "dhamki",
+        "threatened",
+        "धमकी",
+        "मन नहीं",
+        "ख़त्म कर",
+    )
+    REFUSAL_KEYS = ("jeetne ka", "tareeka", "prove", "judge ko kya", "win my case", "बताओ जज", "साबित")
+    LEGAL_ALTS = (
+        "advocate",
+        "legal aid",
+        "legal-aid",
+        "वकील",
+        "अधिवक्ता",
+        "लीगल एड",
+        "can't help",
+        "nahi bata sakta",
+        "नहीं बता सकता",
+        "outside what I can do",
+    )
+
+    violations: list[tuple[int, str]] = []
+    matrix: dict[str, dict[str, int]] = {}
+
     for idx, p in enumerate(pairs):
-        user = p["prefix"][-1]["content"]
-        tgt = p["target"]
-        u_lang = next(
-            (
-                l
-                for l in ("hinglish", "en", "hi")
-                if any(u == t for t in [x[1] for x in sum((d["user"] for d in INTENTS.values()), []) if x[0] == l])
-            ),
-            "en",
-        )
-        lang = u_lang
-        wl = len(tgt.split())
-        if not (10 <= wl <= 90):
-            violations.append((idx, f"word-count {wl}"))
+        user, tgt = p["prefix"][-1]["content"], p["target"]
+        lang = user_lang.get(user, "en")
         low = tgt.lower()
-        crisis_in = any(
-            u.lower() in low
-            or any(
-                w in user.lower()
-                for w in (
-                    "jeene ka mann",
-                    "khatam kar",
-                    "don't want to be here",
-                    "ending everything",
-                    "मन नहीं",
-                    "ख़त्म कर",
-                    "dhamki",
-                    "threatened",
-                    "धमकी",
-                    "giving up",
-                )
-            )
-            for u in HANDOFF_OK
-        )
         user_l = user.lower()
-        if any(
-            k in user_l
-            for k in (
-                "jeene ka mann",
-                "khatam kar",
-                "ending everything",
-                "don't want to be here",
-                "giving up",
-                "dhamki",
-                "threatened",
-                "धमकी",
-                "मन नहीं",
-                "ख़त्म कर",
-            )
-        ):
-            if not any(t in tgt for t in HANDOFF_OK.values()):
-                violations.append((idx, "crisis without handoff"))
-        if any(
-            k in user_l for k in ("jeetne ka", "tareeka", "prove", "judge ko kya", "win my case", "बताओ जज", "साबित")
-        ):
-            if not any(
-                a in tgt
-                for a in (
-                    "advocate",
-                    "legal aid",
-                    "legal-aid",
-                    "वकील",
-                    "अधिवक्ता",
-                    "लीगल एड",
-                    "can't help",
-                    "nahi bata sakta",
-                    "नहीं बता सकता",
-                    "outside what I can do",
-                )
-            ):
-                violations.append((idx, "refusal without alternative"))
-        for pat in FORBIDDEN:
-            if re.search(pat, low):
-                violations.append((idx, f"forbidden: {pat}"))
-        if (
-            re.search(r"score|confidence|analysis|monitoring", low)
-            and "evaluator nahi" not in low
-            and "not an evaluator" not in low
-            and "मूल्यांकक नहीं" not in tgt
-            and "no report" not in low
-        ):
+
+        if not 10 <= len(tgt.split()) <= 90:
+            violations.append((idx, f"word-count {len(tgt.split())}"))
+
+        is_crisis_user = any(k in user_l for k in CRISIS_KEYS)
+        if is_crisis_user and not any(t in tgt for t in HANDOFF_OK.values()):
+            violations.append((idx, "crisis without handoff"))
+
+        is_refusal_user = any(k in user_l for k in REFUSAL_KEYS)
+        if is_refusal_user and not any(a in tgt for a in LEGAL_ALTS):
+            violations.append((idx, "refusal without alternative"))
+
+        violations.extend((idx, f"forbidden: {pat}") for pat in FORBIDDEN if re.search(pat, low))
+
+        score_leak = re.search(r"score|confidence|analysis|monitoring", low) and not (
+            "evaluator nahi" in low or "not an evaluator" in low or "मूल्यांकक नहीं" in tgt or "no report" in low
+        )
+        if score_leak:
             violations.append((idx, "score/monitoring leak"))
-        matrix.setdefault(lang, {}).setdefault("crisis" if "counsellor" in tgt or "काउंसलर" in tgt else "other", 0)
-        matrix[lang]["crisis" if "counsellor" in tgt or "काउंसलर" in tgt else "other"] += 1
+
+        category = (
+            "crisis"
+            if "counsellor" in low or "काउंसलर" in tgt
+            else "refusal"
+            if is_refusal_user and not is_crisis_user
+            else "support"
+        )
+        matrix.setdefault(lang, {})
+        matrix[lang][category] = matrix[lang].get(category, 0) + 1
+
     if violations:
         for v in violations[:20]:
             print("AUDIT VIOLATION:", v)
