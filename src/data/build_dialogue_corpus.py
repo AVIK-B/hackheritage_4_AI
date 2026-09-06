@@ -456,11 +456,19 @@ INTENTS = {
             ("en", "I keep thinking about ending everything"),
         ],
         "ack": {
-            "hinglish": "yeh baat kehne mein himmat lagi hogi - aapne bilkul sahi kiya batana",
-            "hi": "यह बात कहने में हिम्मत लगी होगी - आपने बिल्कुल सही किया बताना",
-            "en": "it took real courage to say this - you did exactly the right thing telling me",
-        },
+            "hinglish": ["yeh baat kehne mein himmat lagi hogi - aapne bilkul sahi kiya batana",
+                         "yeh sunna bhaari hai, aur yahan bolna sabse sahi jagah hai",
+                         "jo feel kar rahe ho, woh batana bahut zaroori tha"],
+            "hi": ["यह बात कहने में हिम्मत लगी होगी - आपने बिल्कुल सही किया बताना",
+                   "यह सुनना भारी है, और यहाँ बोलना सबसे सही जगह है",
+                   "जो महसूस कर रहे हैं, वह बताना बहुत ज़रूरी था"],
+            "en": ["it took real courage to say this - you did exactly the right thing telling me",
+                   "hearing that is heavy, and saying it here was the right move",
+                   "whatever you're carrying, telling me was the important part"]
+                   },
     },
+    # same
+    
     "giving_up_case": {
         "risk": "crisis",
         "topic": "case",
@@ -470,9 +478,21 @@ INTENTS = {
             ("en", "I want to give up on everything - the case, all of it"),
         ],
         "ack": {
-            "hinglish": "har ladne wale ki aisi raat aati hai - yeh hissa aapki kamzori nahi, bojh ka signal hai",
-            "hi": "हर लड़ने वाले की ऐसी रात आती है - यह हिस्सा आपकी कमज़ोरी नहीं, बोझ का संकेत है",
-            "en": "every fighter meets nights like this - it's not weakness, it's the weight talking",
+            "hinglish": [
+                "har ladne wale ki aisi raat aati hai - yeh hissa aapki kamzori nahi, bojh ka signal hai",
+                "jab itna sab sahi jhol rakha ho to haar ka khayal aana natural hai",
+                "yeh thakaan bojh ka signal hai, aapki personality ka nahi",
+            ],
+            "hi": [
+                "हर लड़ने वाले की ऐसी रात आती है - यह हिस्सा आपकी कमज़ोरी नहीं, बोझ का संकेत है",
+                "जब इतना सब झेल रखा हो तो हार का ख़याल आना स्वाभाविक है",
+                "यह थकान बोझ का संकेत है, आपकी कमज़ोरी का नहीं",
+            ],
+            "en": [
+                "every fighter meets nights like this - it's not weakness, it's the weight talking",
+                "when you've carried this much, wanting it to end is natural - the weight, not you",
+                "that exhaustion is a signal of the load, not of who you are",
+            ],
         },
     },
     "threat_disclosure": {
@@ -485,9 +505,21 @@ INTENTS = {
             ("en", "they said they know where my family lives"),
         ],
         "ack": {
-            "hinglish": "yeh dhamki ko halka nahi kiya ja sakta - aapne bataya, aur yeh zaroori tha",
-            "hi": "धमकी को हल्का नहीं किया जा सकता - आपने बताया, और यह ज़रूरी था",
-            "en": "a threat is never something to shrug off - you told me, and that was necessary",
+            "hinglish": [
+                "yeh dhamki ko halka nahi kiya ja sakta - aapne bataya, aur yeh zaroori tha",
+                "dhamki lena koi mazaak nahi hai - batana hi sabse pehla kadam tha",
+                "yeh serious hai, aur aap sahi jagah laaye ho is baat ko",
+            ],
+            "hi": [
+                "धमकी को हल्का नहीं किया जा सकता - आपने बताया, और यह ज़रूरी था",
+                "धमकी कोई मज़ाक नहीं है - बताना ही पहला कदम था",
+                "यह गंभीर है, और आप इसे सही जगह लाए हो",
+            ],
+            "en": [
+                "a threat is never something to shrug off - you told me, and that was necessary",
+                "receiving threats is serious - telling someone was the first step",
+                "this is serious, and you brought it to the right place",
+            ],
         },
     },
     "legal_strategy_ask": {
@@ -557,36 +589,33 @@ def compose_reply(rng: random.Random, intent: str, lang: str) -> str:
     d = INTENTS[intent]
     risk = d["risk"]
     if risk == "crisis":
-        # exclusive crisis signature: sig -> ack -> handoff (this shape exists ONLY here)
-        return f"{CRISIS_SIG[lang]} {d['ack'][lang]} {HANDOFF[lang]}"
+        # exclusive crisis signature: sig -> ack -> handoff (this shape exists ONLY here).
+        # ack varies per run (3 variants/intent/lang) so crisis pairs survive dedup.
+        ack = rng.choice(d["ack"][lang])
+        return f"{CRISIS_SIG[lang]} {ack} {HANDOFF[lang]}"
     if isinstance(risk, str) and risk.startswith("refusal"):
         kind = risk.split(":", 1)[1]
         return f"{rng.choice(REFUSAL[kind][lang])} {rng.choice(REFUSAL_ALT[lang])}"
     ack = d["ack"][lang]
-    if rng.random() < 0.5:
-        q = {
-            "hearing": {
-                "hinglish": "sabse zyada kya ghabrahat de rahi hai?",
-                "hi": "सबसे ज़्यादा घबराहत किस बात की है?",
-                "en": "what's scaring you most about it?",
-            },
-            "police": {
-                "hinglish": "sabse pehle kaunsa kaam atka hai?",
-                "hi": "सबसे पहले कौन सा काम अटका है?",
-                "en": "which part is stuck first?",
-            },
-        }.get(
-            d["topic"],
-            {
-                "hinglish": "aur kya baat dimaag pe chal rahi hai?",
-                "hi": "और क्या बात दिमाग़ पर चल रही है?",
-                "en": "what else is on your mind?",
-            },
-        )
-        return f"{ack}. {q[lang]}"
+    topic_q = {
+        "hearing": {"hinglish": "sabse zyada kya ghabrahat de rahi hai?",
+                    "hi": "सबसे ज़्यादा घबराहत किस बात की है?",
+                    "en": "what's scaring you most about it?"},
+        "police": {"hinglish": "sabse pehle kaunsa kaam atka hai?",
+                   "hi": "सबसे पहले कौन सा काम अटका है?",
+                   "en": "which part is stuck first?"},
+    }.get(d["topic"], {"hinglish": "aur kya baat dimaag pe chal rahi hai?",
+                       "hi": "और क्या बात दिमाग़ पर चल रही है?",
+                       "en": "what else is on your mind?"})
     coping = d.get("coping", {}).get(lang) or rng.choice(COPING_GENERIC[lang])
     lead = {"hinglish": "Ek kaam karo: ", "en": "Try this: ", "hi": "एक काम कीजिए: "}[lang]
-    return f"{ack}. {lead}{coping}."
+
+    shape = rng.random()
+    if shape < 0.34:                       # ack + topic question
+        return f"{ack}. {topic_q[lang]}"
+    if shape < 0.67:                       # ack + coping action
+        return f"{ack}. {lead}{coping}"
+    return f"{rng.choice(OPENERS[lang])} {ack}."   # opener + ack
 
 
 def callback_opener(rng: random.Random, lang: str, topic: str | None) -> str:
@@ -659,7 +688,10 @@ def synthetic_threads(rng: random.Random, n_threads: int, crisis_share: float) -
                     {"role": "user", "content": rng.choice(DECLINES[u1_lang])},
                     {"role": "assistant", "content": rng.choice(GENTLE_HOLD[u1_lang])},
                 ]
-            pairs += to_pair(msgs, thread_id=tid)
+            t2_pairs = to_pair(msgs, thread_id=tid)
+            if t2_pairs:
+                t2_pairs[-1]["keep"] = True  # stay-present/hold pair: exempt from dedup
+            pairs += t2_pairs
             continue
 
         # decide turn-2 candidate set by turn-1 type:
@@ -876,6 +908,9 @@ def jaccard_dedup(pairs: list[dict], thresh: float = 0.75) -> list[dict]:
     seen: list[set] = []
     out: list[dict] = []
     for p in pairs:
+        if p.get("keep"):
+            out.append(p)  # crisis turn-2 pairs: deliberately formulaic, never collapsed
+            continue
         ctx = " ".join(m["content"] for m in p["prefix"] if m["role"] != "system")
         toks = set(norm(ctx).split()) | set(norm(p["target"]).split())
         if any(len(toks & s) / max(1, len(toks | s)) >= thresh for s in seen[-6000:]):

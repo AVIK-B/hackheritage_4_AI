@@ -3,30 +3,30 @@
   "n_threads": 12000,
   "crisis_share": 0.2,
   "ed_cap": 2500,
-  "total_pairs": 1722,
-  "synthetic_pairs": 22751,
+  "total_pairs": 4730,
+  "synthetic_pairs": 22800,
   "ed_pairs": 0,
-  "val_pairs": 84,
-  "val_threads": 81,
-  "total_threads": 1631,
-  "crisis_pairs": 10,
-  "crisis_share_actual": 0.006,
-  "exact_duplicate_target_ratio": 0.459,
+  "val_pairs": 234,
+  "val_threads": 226,
+  "total_threads": 4521,
+  "crisis_pairs": 26,
+  "crisis_share_actual": 0.005,
+  "exact_duplicate_target_ratio": 0.703,
   "lang_matrix": {
     "hi": {
-      "support": 297,
-      "refusal": 24,
-      "crisis": 2
+      "support": 826,
+      "crisis": 4,
+      "refusal": 20
     },
     "hinglish": {
-      "crisis": 5,
-      "support": 655,
-      "refusal": 64
+      "support": 1912,
+      "crisis": 11,
+      "refusal": 67
     },
     "en": {
-      "refusal": 80,
-      "support": 592,
-      "crisis": 3
+      "support": 1776,
+      "crisis": 11,
+      "refusal": 103
     }
   },
   "generator": "v3.2-one-shot",
