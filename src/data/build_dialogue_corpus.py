@@ -676,8 +676,6 @@ def synthetic_threads(rng: random.Random, n_threads: int, crisis_share: float) -
         r1 = d["risk"]
 
         if r1 == "crisis":
-            # crisis threads TERMINATE here: decline -> stay-present OR gentle hold.
-            # Never a casual callback after crisis (that taught crisis->chitchat).
             if rng.random() < 0.5:
                 msgs += [
                     {"role": "user", "content": rng.choice(DECLINES[u1_lang])},
@@ -690,8 +688,10 @@ def synthetic_threads(rng: random.Random, n_threads: int, crisis_share: float) -
                 ]
             t2_pairs = to_pair(msgs, thread_id=tid)
             if t2_pairs:
-                t2_pairs[-1]["keep"] = True  # stay-present/hold pair: exempt from dedup
-            pairs += t2_pairs
+                pairs.append(t2_pairs[0])            # handoff pair: ALWAYS kept
+                if rng.random() < 0.06:              # decline→hold: sample ~6% (~145 at scale)
+                    t2_pairs[-1]["keep"] = True
+                    pairs.append(t2_pairs[-1])
             continue
 
         # decide turn-2 candidate set by turn-1 type:
@@ -940,7 +940,17 @@ def main(n_threads: int, seed: int, ed_cap: int, crisis_share: float, out: str) 
     for p in pub:
         p["source"] = "ed"
     pairs = jaccard_dedup(synth + pub, thresh=0.75)
-
+        # safety-class oversampling: crisis handoff pairs x5 total.
+    # Deliberate duplication of the safety-critical minority class — the same
+    # practice as class-weighted loss. Dedup must NOT collapse these.
+    crisis_upsample = [
+        p for p in pairs
+        if p.get("source") == "synthetic"
+        and len(p["prefix"]) == 2                              # turn-1 pairs only
+        and any(t in p["target"].lower() for t in _handoff_tokens())
+    ]
+    pre_dup_targets = [norm(p["target"]) for p in pairs]       # ratio measured BEFORE upsampling
+    pairs = pairs + crisis_upsample * 4                        # 5x total
     # ── THREAD-AWARE SPLIT ──────────────────────────────────────────────────
     # All pairs of one conversation stay on the SAME side of the split.
     # Prevents context leakage: pair-2's prefix contains turn-1 text from pair-1.
@@ -975,7 +985,10 @@ def main(n_threads: int, seed: int, ed_cap: int, crisis_share: float, out: str) 
         "total_threads": len(all_threads),
         "crisis_pairs": crisis_pairs,
         "crisis_share_actual": round(crisis_pairs / max(1, len(pairs)), 3),
-        "exact_duplicate_target_ratio": round(1 - len(set(tgt_norm)) / max(1, len(tgt_norm)), 3),
+        "exact_duplicate_target_ratio": round(
+            1 - len(set(pre_dup_targets)) / max(1, len(pre_dup_targets)), 3
+        ),
+        "crisis_oversample_count": len(crisis_upsample) * 4,
         "lang_matrix": matrix,
         "generator": "v3.2-one-shot",
         "system_prompt_sha256": hashlib.sha256(SYSTEM.encode()).hexdigest()[:16],
