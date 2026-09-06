@@ -1,48 +1,115 @@
 from langgraph.graph import END, START, StateGraph
 
-from src.orchestration import nodes_io as io
+from src.common.safety import CRISIS_COPY
+from src.orchestration.agents import (
+    AgentRegistry,
+    ContextAgent,
+    CrisisPrecheckAgent,
+    ForecastAgent,
+    FusionAgent,
+    SentimentAgent,
+    ThreatAgent,
+    VoiceAgent,
+)
 from src.orchestration import nodes_llm as ln
-from src.orchestration.state import OrchestratorState as S
+from src.orchestration.policies import evaluate
+from src.orchestration.state import Decision, OrchestratorState as S
 
 
 def build(cfg: dict, http, llm, checkpointer=None):
+    registry = AgentRegistry(cfg, http, llm)
+
+    def agent_node(cls):
+        agent = registry.get(cls)
+
+        def _node(state: S) -> dict:
+            res = agent.run(state)
+            upd: dict = {
+                "_agent_telemetry": {
+                    **(state.get("_agent_telemetry") or {}),
+                    res.agent: {"ok": res.ok, "degraded": res.degraded, "ms": res.latency_ms},
+                }
+            }
+            if cls is CrisisPrecheckAgent:
+                upd["crisis"] = res.data
+            elif cls is ContextAgent:
+                upd["case_ctx"] = res.data
+                upd["language"] = res.data.get("language", state.get("language", "en"))
+            elif cls in (SentimentAgent, ThreatAgent):
+                sig = dict(state.get("signals") or {})
+                sig["sentiment" if cls is SentimentAgent else "threat"] = res.data
+                upd["signals"] = sig
+            elif cls is VoiceAgent and res.data is not None:
+                upd["signals"] = {**(state.get("signals") or {}), "voice": res.data}
+            elif cls is FusionAgent and res.data is not None:
+                upd["fusion"] = FusionResult(**res.data)
+            elif cls is ForecastAgent and res.data is not None:
+                upd["forecast"] = ForecastResult(**res.data)
+            return upd
+
+        return _node
+
+    def parallel_signals(state: S) -> dict:
+        res = registry.parallel([SentimentAgent, ThreatAgent, ContextAgent], state)
+        upd = {
+            "_agent_telemetry": {
+                **(state.get("_agent_telemetry") or {}),
+                **{n: {"ok": r.ok, "degraded": r.degraded, "ms": r.latency_ms} for n, r in res.items()},
+            }
+        }
+        sig = dict(state.get("signals") or {})
+        if res["sentiment"].data:
+            sig["sentiment"] = res["sentiment"].data
+        if res["threat"].data:
+            sig["threat"] = res["threat"].data
+        upd["signals"] = sig
+        if res["case_context"].data:
+            upd["case_ctx"] = res["case_context"].data
+            upd["language"] = res["case_context"].data.get("language", state.get("language", "en"))
+        return upd
+
+    def decide(state: S) -> dict:
+        d = evaluate(
+            state.get("crisis"),
+            state.get("fusion"),
+            state.get("forecast"),
+            {k: v for k, v in (state.get("signals") or {}).items() if v},
+            cfg,
+        )
+        return {"decision": d}
+
+    def victim_handoff(state: S) -> dict:
+        c = state["crisis"]
+        hits = ", ".join(c.hits) if c and c.hits else "pattern match"
+        return {
+            "reply": CRISIS_COPY.get(state.get("language", "en"), CRISIS_COPY["en"]),
+            "decision": Decision(
+                route="crisis",
+                reasons=[f"crisis precheck: {c.source} ({hits})"],
+                policy_version=cfg.get("policy_version", "?"),
+            ),
+        }
+
     g = StateGraph(S)
+    g.add_node("crisis_precheck", agent_node(CrisisPrecheckAgent))
+    g.add_node("parallel_signals", parallel_signals)
+    g.add_node("fuse", agent_node(FusionAgent))
+    g.add_node("forecast", agent_node(ForecastAgent))
+    g.add_node("decide", decide)
+    g.add_node("victim_handoff", victim_handoff)
+    g.add_node("respond", lambda s: ln.respond(s, cfg=cfg, llm=llm, registry=registry))
+    g.add_node("summarize", lambda s: ln.summarize(s, cfg=cfg, llm=llm, registry=registry))
+    g.add_node("dispatch", lambda s: ln.dispatch(s, cfg=cfg, llm=llm, registry=registry))
+    g.add_node("audit", lambda s: s.get("_audit_passthrough", {}))
 
-    def node(fn):
-        """Bind cfg/http into a LangGraph node. LangGraph invokes node fns with
-        (state) only — any additional dependencies must be closed over here."""
-        return lambda s: fn(s, cfg=cfg, http=http)
-
-    g.add_node("ingest", node(io.ingest))
-    g.add_node("crisis_precheck", lambda s: io.crisis_precheck(s, cfg=cfg))
-    g.add_node("fanout", lambda s: {})  # no-op fan-out point for parallel signals
-    g.add_node("sentiment", node(io.make_signal_node("sentiment", "/v1/signals/text")))
-    g.add_node("threat", node(io.make_signal_node("threat", "/v1/signals/threat")))
-    g.add_node("voice", node(io.make_signal_node("voice", "/v1/signals/voice")))
-    g.add_node("fuse", node(io.fuse))
-    g.add_node("forecast", node(io.forecast))
-    g.add_node("decide", lambda s: io.decide(s, cfg=cfg))
-    g.add_node("victim_handoff", lambda s: io.victim_handoff(s, cfg=cfg))
-    g.add_node("respond", lambda s: ln.respond(s, cfg=cfg, llm=llm))
-    g.add_node("summarize", lambda s: ln.summarize(s, cfg=cfg, llm=llm))
-    g.add_node("dispatch_crisis", node(io.dispatch_alert("crisis")))
-    g.add_node("dispatch_escalation", node(io.dispatch_alert("high")))
-    g.add_node("audit", lambda s: io.audit_node(s, cfg=cfg))
-
-    g.add_edge(START, "ingest")
-    g.add_edge("ingest", "crisis_precheck")
+    g.add_edge(START, "crisis_precheck")
     g.add_conditional_edges(
         "crisis_precheck",
-        lambda s: "crisis" if s["crisis"].is_crisis else "fanout",
-        {"crisis": "victim_handoff", "fanout": "fanout"},
+        lambda s: "crisis" if s["crisis"].is_crisis else "parallel_signals",
+        {"crisis": "victim_handoff", "parallel_signals": "parallel_signals"},
     )
-    g.add_edge("victim_handoff", "dispatch_crisis")
-    g.add_edge("dispatch_crisis", "audit")
-    g.add_edge("fanout", "sentiment")
-    g.add_edge("fanout", "threat")
-    g.add_edge("fanout", "voice")
-    for n in ("sentiment", "threat", "voice"):
-        g.add_edge(n, "fuse")
+    g.add_edge("victim_handoff", "dispatch")
+    g.add_edge("parallel_signals", "fuse")
     g.add_edge("fuse", "forecast")
     g.add_edge("forecast", "decide")
     g.add_conditional_edges(
@@ -50,9 +117,11 @@ def build(cfg: dict, http, llm, checkpointer=None):
         lambda s: "summarize" if s["decision"].route == "escalate" else "respond",
         {"summarize": "summarize", "respond": "respond"},
     )
-    g.add_edge("summarize", "dispatch_escalation")
-    g.add_edge("dispatch_escalation", "audit")
+    g.add_edge("summarize", "dispatch")
+    g.add_edge("dispatch", "audit")
     g.add_edge("respond", "audit")
     g.add_edge("audit", END)
 
-    return g.compile(checkpointer=checkpointer, interrupt_before=["dispatch_escalation"])
+    app = g.compile(checkpointer=checkpointer, interrupt_before=["dispatch"])
+    app._registry = registry
+    return app
