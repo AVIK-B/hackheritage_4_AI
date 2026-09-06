@@ -20,6 +20,12 @@ def init_ledger(path: str) -> AuditLedger:
     return _ledger
 
 
+def _require_ledger() -> AuditLedger:
+    if _ledger is None:
+        raise RuntimeError("audit_ledger_not_initialized")
+    return _ledger
+
+
 def _post(http: httpx.Client, url: str, payload: dict, timeout: float, breaker_name: str) -> dict:
     br = breakers.get(breaker_name)
     if not br.allow():
@@ -163,14 +169,14 @@ def victim_handoff(state, *, cfg) -> dict:
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_fixed(1), reraise=True)
-def _dispatch(http, cfg, state):
+def _dispatch(http, cfg, state, severity: str):
     decision = state.get("decision")
     return _post(
         http,
         f"{cfg['services']['backend']}/v1/alerts",
         {
             "case_id": state["case_id"],
-            "severity": state["_severity"],
+            "severity": severity,
             "reasons": decision.reasons if decision else [],
             "summary_text": state.get("summary_text", ""),
         },
@@ -184,14 +190,13 @@ def dispatch_alert(severity: str):
         if state.get("counsellor_action") and not state["counsellor_action"].get("approved"):
             log.info("escalation_rejected_by_counsellor", thread=state["thread_id"])
             return {"dispatched": True, "alert_id": None}
-        state["_severity"] = severity
         try:
-            r = _dispatch(http, cfg, state)
+            r = _dispatch(http, cfg, state, severity)
             return {"dispatched": True, "alert_id": r["alert_id"]}
         except Exception as e:
             # dead-letter: never lose an escalation — record it in the tamper-evident ledger
             decision = state.get("decision")
-            _ledger.append(
+            _require_ledger().append(
                 {
                     "kind": "alert_dispatch_failed",
                     "thread_id": state["thread_id"],
@@ -208,7 +213,7 @@ def dispatch_alert(severity: str):
 
 
 def audit_node(state, *, cfg) -> dict:
-    rec = _ledger.append(
+    rec = _require_ledger().append(
         {
             "kind": "interaction",
             "thread_id": state["thread_id"],

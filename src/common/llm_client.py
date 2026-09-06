@@ -22,12 +22,6 @@ class LLMDown(Exception):
 
 
 class LLMClient:
-    # at the very top of llm_client.py, add this import:
-    # from pathlib import Path
-
-    # inside the class body, first members:
-    # repo root /prompts
-
     SYSTEM_A = (_PROMPTS_DIR / "sahayak_system.txt").read_text(encoding="utf-8").strip()
     SYSTEM_B = (_PROMPTS_DIR / "casewriter_system.txt").read_text(encoding="utf-8").strip()
 
@@ -50,8 +44,14 @@ class LLMClient:
             model=model, messages=messages, temperature=temperature, max_tokens=max_tokens
         )
 
+    def _model(self, adapter_key: str) -> str:
+        try:
+            return self.model_map[adapter_key]
+        except KeyError as e:
+            raise LLMDown(f"llm_model_missing:{adapter_key}") from e
+
     def _run(self, adapter_key: str, messages: list, temperature: float, max_tokens: int) -> str:
-        model = self.model_map[adapter_key]
+        model = self._model(adapter_key)
         if not self._breaker.allow():
             raise LLMDown("llm_breaker_open")
         try:
@@ -71,7 +71,7 @@ class LLMClient:
 
     def stream(self, adapter_key: str, messages: list, temperature: float = 0.6, max_tokens: int = 220):
         """Generator of text chunks; breaker + transient-retry applied to the first call."""
-        model = self.model_map[adapter_key]
+        model = self._model(adapter_key)
         if not self._breaker.allow():
             raise LLMDown("llm_breaker_open")
         try:
@@ -80,8 +80,8 @@ class LLMClient:
             )
             for event in stream:
                 if event.choices and event.choices[0].delta and event.choices[0].delta.content:
-                    self._breaker.record(True)
                     yield event.choices[0].delta.content
+            self._breaker.record(True)
         except _TRANSIENT as e:
             self._breaker.record(False)
             raise LLMDown(str(e)) from e

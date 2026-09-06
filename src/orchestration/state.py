@@ -1,7 +1,7 @@
 import operator
 from typing import Annotated, Any, TypedDict
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 def merge_dicts(a: dict | None, b: dict | None) -> dict:
@@ -10,14 +10,14 @@ def merge_dicts(a: dict | None, b: dict | None) -> dict:
 
 class CrisisAssessment(BaseModel):
     is_crisis: bool = False
-    hits: list[str] = []
+    hits: list[str] = Field(default_factory=list)
     source: str = "lexicon"
 
 
 class FusionResult(BaseModel):
     composite_score: float
     confidence: float
-    top_signals: list[str] = []
+    top_signals: list[str] = Field(default_factory=list)
 
 
 class ForecastResult(BaseModel):
@@ -27,7 +27,7 @@ class ForecastResult(BaseModel):
 
 class Decision(BaseModel):
     route: str  # crisis | escalate | routine
-    reasons: list[str] = []
+    reasons: list[str] = Field(default_factory=list)
     policy_version: str = ""
 
 

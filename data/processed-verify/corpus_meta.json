@@ -1,0 +1,36 @@
+{
+  "seed": 42,
+  "n_threads": 800,
+  "crisis_share": 0.2,
+  "ed_cap": 1000,
+  "total_pairs": 225,
+  "synthetic_pairs": 1506,
+  "ed_pairs": 0,
+  "val_pairs": 13,
+  "val_threads": 9,
+  "total_threads": 188,
+  "crisis_pairs": 10,
+  "crisis_share_actual": 0.044,
+  "exact_duplicate_target_ratio": 0.084,
+  "lang_matrix": {
+    "en": {
+      "support": 63,
+      "crisis": 3,
+      "refusal": 12
+    },
+    "hi": {
+      "support": 47,
+      "crisis": 2,
+      "refusal": 3
+    },
+    "hinglish": {
+      "support": 82,
+      "crisis": 5,
+      "refusal": 8
+    }
+  },
+  "generator": "v3.2-one-shot",
+  "system_prompt_sha256": "f88ff13ed3603a1b",
+  "base_model": "sarvamai/sarvam-1",
+  "base_revision": "unknown"
+}

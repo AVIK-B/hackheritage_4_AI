@@ -63,8 +63,6 @@ async def lifespan(app: FastAPI):
         cp.setup()
         _state["cp"] = cp
     _state["graph"] = build(settings.model_dump(), _state["http"], _state["llm"], _state["cp"])
-    import threading
-
     _state["gate"] = threading.BoundedSemaphore(settings.max_concurrent_graphs)
     log.info("orchestrator_up", env=settings.env, llm=settings.llm_base_url)
     yield
@@ -223,7 +221,8 @@ def healthz():
 
 @app.get("/readyz")
 def readyz(role: str = Depends(auth.require("ops"))):
-    return {"llm": _state["llm"].health(), "graph": _state["graph"] is not None}
+    llm = _state.get("llm")
+    return {"llm": bool(llm and llm.health()), "graph": _state.get("graph") is not None}
 
 
 @app.get("/metrics")

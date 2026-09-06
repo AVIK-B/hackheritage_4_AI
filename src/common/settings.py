@@ -1,4 +1,4 @@
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -46,6 +46,31 @@ class Settings(BaseSettings):
         if not (0 < v["escalate_score"] <= 1 and 0 < v["forecast_escalation_prob"] <= 1):
             raise ValueError("policies out of range: escalate_score/forecast_escalation_prob must be in (0, 1]")
         return v
+
+    @model_validator(mode="after")
+    def _production_ready(self):
+        required_services = {"scoring", "fusion", "forecast", "backend"}
+        missing_services = required_services - set(self.services)
+        if missing_services:
+            missing = ", ".join(sorted(missing_services))
+            raise ValueError(f"missing service endpoints: {missing}")
+
+        required_models = {"dialogue", "summary"}
+        missing_models = required_models - set(self.llm_model_map)
+        if missing_models:
+            missing = ", ".join(sorted(missing_models))
+            raise ValueError(f"missing LLM model mappings: {missing}")
+
+        if self.env == "prod":
+            dev_keys = {"vk_dev", "ck_dev", "ok_dev"}
+            configured_keys = set(self.api_keys.values())
+            if configured_keys & dev_keys:
+                raise ValueError("prod environment cannot use default development API keys")
+            if "*" in self.allowed_origins:
+                raise ValueError("prod environment cannot allow wildcard CORS origins")
+            if not self.checkpoint_dsn:
+                raise ValueError("prod environment requires ORCH_CHECKPOINT_DSN")
+        return self
 
 
 settings = Settings()
