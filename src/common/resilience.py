@@ -47,5 +47,9 @@ class Breakers:
                 self._map[name] = CircuitBreaker(name)
             return self._map[name]
 
+    def reset(self) -> None:
+        with self._lock:
+            self._map.clear()
+
 
 breakers = Breakers()

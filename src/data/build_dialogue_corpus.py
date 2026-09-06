@@ -872,17 +872,17 @@ def audit(pairs: list[dict]) -> dict:
     return matrix
 
 
-def jaccard_dedup(pairs: list[dict], thresh: float = 0.85) -> list[dict]:
+def jaccard_dedup(pairs: list[dict], thresh: float = 0.75) -> list[dict]:
     seen: list[set] = []
     out: list[dict] = []
     for p in pairs:
-        toks = set(norm(p["prefix"][-1]["content"]).split()) | set(norm(p["target"]).split())
-        if any(len(toks & s) / max(1, len(toks | s)) >= thresh for s in seen[-4000:]):
+        ctx = " ".join(m["content"] for m in p["prefix"] if m["role"] != "system")
+        toks = set(norm(ctx).split()) | set(norm(p["target"]).split())
+        if any(len(toks & s) / max(1, len(toks | s)) >= thresh for s in seen[-6000:]):
             continue
         seen.append(toks)
         out.append(p)
     return out
-
 
 def _base_revision() -> str:
     try:
