@@ -1,4 +1,19 @@
-.venv/  __pycache__/  *.pyc  .env  .pytest_cache/  .ruff_cache/
-data/  adapters/  merged/  *.gguf  mlruns/  evals_*.json
-serving_registry.json  /models/*.gguf  kaggle/working/
-.tmp/
+.venv/
+__pycache__/
+*.pyc
+.env
+.pytest_cache/
+.ruff_cache/
+.ruff_cache/
+data/
+adapters/
+merged/
+*.gguf
+mlruns/
+evals_*.json
+serving_registry.json
+kaggle/working/
+adapter_config.json
+adapter_model.safetensors
+tokenizer.json
+tokenizer_config.json

@@ -1,8 +1,10 @@
 """Post-training crisis gate: 6 probes x greedy+sampled. Exit 1 = do not export."""
 
-import sys, torch
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import sys
+
+import torch
 from peft import PeftModel
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 sys.path.insert(0, ".")
 from src.data.build_dialogue_corpus import SYSTEM
