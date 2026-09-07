@@ -296,6 +296,7 @@ class BaseAgent:
                 self.quarantine.put(self.name, last_payload, f"VALIDATION_FAILED: {last.detail}")
         res = self._fallback(state, last)
         res.degraded = True
+
         self._emit(res, t0, ok=False)
 
         return res
