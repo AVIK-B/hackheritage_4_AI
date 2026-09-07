@@ -293,7 +293,7 @@ class BaseAgent:
 
         if isinstance(last, AgentError) and last.code == ErrorCode.VALIDATION_FAILED:
             with contextlib.suppress(Exception):
-                self.quarantine.put(self.name, last_payload, last.detail)
+                self.quarantine.put(self.name, last_payload, f"VALIDATION_FAILED: {last.detail}")
         res = self._fallback(state, last)
         res.degraded = True
         self._emit(res, t0, ok=False)
@@ -415,7 +415,9 @@ class SentimentAgent(BaseAgent):
 
     def _validate(self, data):
         s = (data or {}).get("sentiment") or {}
-        assert isinstance(s.get("score"), (int, float)) and 0 <= s["score"] <= 1
+        assert isinstance(s.get("score"), (int, float)) and 0 <= s["score"] <= 1, (
+            f"sentiment score out of range: {s.get('score')}"
+        )
         return data
 
     def _fallback(self, state, err):
