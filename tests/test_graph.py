@@ -1,9 +1,8 @@
 """Chaos tests: run the REAL graph with dead teammates + dead LLM and assert
 every path completes with sane, safe, degraded behavior."""
 
-import os
+import json
 
-import pytest
 from fastapi.testclient import TestClient
 
 from src.orchestration.app import app
@@ -11,17 +10,6 @@ from src.orchestration.app import app
 VK = {"X-API-Key": "vk_t"}
 CK = {"X-API-Key": "ck_t"}
 OK = {"X-API-Key": "ok_t"}
-
-
-@pytest.fixture(autouse=True)
-def _fresh_ledger():
-    """Delete the ledger file before each test so the chain starts fresh."""
-    from src.common.settings import settings
-
-    p = settings.audit_path
-    if os.path.exists(p):
-        os.remove(p)
-    yield
 
 
 def test_crisis_short_circuit_survives_total_blackout():

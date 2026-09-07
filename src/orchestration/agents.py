@@ -283,8 +283,8 @@ class BaseAgent:
                 last = e
                 self.breaker.record(False)
                 self.health.record(False)
-            except Exception as e:
-                last = AgentError(ErrorCode.INTERNAL, str(e))
+            except AssertionError as e:
+                last = AgentError(ErrorCode.VALIDATION_FAILED, str(e))
                 self.breaker.record(False)
                 self.health.record(False)
             log.warning("agent_attempt_failed", agent=self.name, attempt=attempt, err=str(last))
@@ -744,9 +744,19 @@ class SummaryAgent(BaseAgent):
         if not self._grounded(out, facts):
             log.warning("summary_ungrounded_regen", case=state["case_id"])
             out = self._gen(facts, 0.1)
-            if not self._grounded(out, facts):
-                raise AgentError(ErrorCode.VALIDATION_FAILED, "ungrounded after regen")
-        return {"text": out, "facts": facts, "grounded": self._grounded(out, facts)}
+        if not self._grounded(out, facts):
+            label, action = summary_label(facts, self.cfg)
+
+            def fm(x):
+                return "data unavailable" if x is None else f"{x:.2f}"
+
+            out = (
+                f"Risk: {label} (composite {fm(facts['composite_score'])}, "
+                f"confidence {fm(facts['confidence'])}). Stage: {facts['case_stage']}. "
+                f"Recommended action: {action}"
+            )
+            return {"text": out, "facts": facts, "grounded": False}
+        return {"text": out, "facts": facts, "grounded": True}
 
     def _validate(self, data):
         assert isinstance(data.get("text"), str) and data["text"].strip()
