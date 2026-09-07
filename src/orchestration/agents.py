@@ -248,8 +248,8 @@ class BaseAgent:
             AGENT_INFLIGHT.labels(self.name).dec()
 
     def _guarded(self, state: dict, t0: float) -> AgentResult:
-        ck = self._cache_key(state) if self.cache_ttl_s > 0 else None
-        if ck is not None and self.cache:
+        ck = self._cache_key(state) if (self.cache_ttl_s > 0 and self.cache) else None
+        if ck is not None:
             hit = self.cache.get(ck)
             if hit is not None:
                 res = AgentResult(self.name, True, data=hit, cached=True)

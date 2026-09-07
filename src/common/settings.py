@@ -1,6 +1,9 @@
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+request_budget_ms: int = 12000
+audit_hmac_key: str = "dev-only-change-me"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ORCH_", env_file=".env", extra="ignore")

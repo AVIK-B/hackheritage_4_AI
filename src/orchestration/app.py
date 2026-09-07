@@ -49,7 +49,7 @@ class ResumeAction(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    _state["ledger"] = AuditLedger(settings.audit_path)
+    _state["ledger"] = AuditLedger(settings.audit_path, settings.audit_hmac_key.encode())
     _state["http"] = httpx.Client()
     _state["llm"] = LLMClient(
         settings.llm_base_url, settings.llm_model_map, settings.llm_api_key, settings.llm_timeout_s
