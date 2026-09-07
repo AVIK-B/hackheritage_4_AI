@@ -9,6 +9,7 @@ from src.orchestration.agents import (
     AlertDispatchAgent,
     ErrorCode,
     FusionAgent,
+    FusionResult,
     Priority,
     Quarantine,
     SentimentAgent,
@@ -29,9 +30,11 @@ class FakeHTTP:
     def queue(self, url_part: str, outcomes: list) -> None:
         self._behavior[url_part] = outcomes
 
-    def _next(self, url_part: str):
-        seq = self._behavior.get(url_part, [None])
-        return seq.pop(0) if len(seq) > 1 else seq[0]
+    def _next(self, url: str):
+        for key, seq in self._behavior.items():
+            if key in url:
+                return seq.pop(0) if len(seq) > 1 else seq[0]
+        return None
 
     def post(self, url, json=None, timeout=None, headers=None):
         self.calls.append(("POST", url, json, headers))
@@ -104,7 +107,10 @@ def test_sentiment_retry_then_success(cfg):
     http.queue("/v1/signals/text", [ConnectionError("boom1"), {"sentiment": {"label": "negative", "score": 0.8}}])
     agent = SentimentAgent(cfg, http)
     res = agent.run({"message": "x", "language": "en"})
-    assert res.ok and res.attempts == 2 and res.data["sentiment"]["score"] == 0.8
+    print(f"DEBUG retry: ok={res.ok} attempts={res.attempts} data={res.data} err={res.error} detail={res.detail}")
+    assert res.ok, f"res.ok={res.ok}, err={res.error}"
+    assert res.attempts == 2
+    assert res.data["sentiment"]["score"] == 0.8
 
 
 def test_sentiment_fallback_on_persistent_failure(cfg):
@@ -123,8 +129,10 @@ def test_bad_payload_goes_to_quarantine(cfg, tmp_path):
     agent = SentimentAgent(cfg, http)
     agent.quarantine = q
     res = agent.run({"message": "x", "language": "en"})
+    print(f"DEBUG quarantine: ok={res.ok} degraded={res.degraded} err={res.error} detail={res.detail}")
     assert res.degraded
-    assert "VALIDATION_FAILED" in (tmp_path / "q.jsonl").read_text()
+    assert q.path.exists(), f"quarantine file missing: {q.path}"
+    assert "VALIDATION_FAILED" in q.path.read_text()
 
 
 # ── conservative threat fallback ─────────────────────────────────────────────
@@ -217,7 +225,11 @@ def test_summary_grounded_ok(cfg):
     )
     agent = SummaryAgent(cfg, http, llm)
     res = agent.run(_summary_state())
-    assert res.ok and res.data["grounded"] is True
+    print(
+        f"DEBUG summary_grounded: ok={res.ok} grounded={res.data.get('grounded') if res.data else 'N/A'} text={res.data['text'][:100] if res.data else 'N/A'}"
+    )
+    assert res.ok
+    assert res.data["grounded"] is True
 
 
 def test_summary_ungrounded_falls_back_to_deterministic(cfg):
@@ -230,6 +242,9 @@ def test_summary_ungrounded_falls_back_to_deterministic(cfg):
     )
     agent = SummaryAgent(cfg, http, llm)
     res = agent.run(_summary_state())
+    print(
+        f"DEBUG summary_ungrounded: ok={res.ok} degraded={res.degraded} text={res.data['text'][:150] if res.data else 'N/A'} err={res.error}"
+    )
     assert res.degraded and "0.99" not in res.data["text"]
 
 

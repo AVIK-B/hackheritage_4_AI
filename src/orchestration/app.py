@@ -110,7 +110,8 @@ def _invoke(init: dict, stream_q: queue.Queue | None = None) -> dict:
     final["thread_id"] = init["thread_id"]
 
     # tamper-evident ledger write (outside graph state: JSONL + hash chain)
-    _state["ledger"].append(
+    # tamper-evident ledger write
+    rec = _state["ledger"].append(
         {
             "kind": "interaction",
             "thread_id": init["thread_id"],
@@ -124,6 +125,7 @@ def _invoke(init: dict, stream_q: queue.Queue | None = None) -> dict:
             "telemetry": final.get("_agent_telemetry", {}),
         }
     )
+    final["audit_ref"] = rec["record_hash"]  # ← THIS LINE WAS MISSING
     return final
 
 

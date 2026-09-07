@@ -744,6 +744,8 @@ class SummaryAgent(BaseAgent):
         if not self._grounded(out, facts):
             log.warning("summary_ungrounded_regen", case=state["case_id"])
             out = self._gen(facts, 0.1)
+            if not self._grounded(out, facts):
+                raise AgentError(ErrorCode.VALIDATION_FAILED, "ungrounded after regen")
         return {"text": out, "facts": facts, "grounded": self._grounded(out, facts)}
 
     def _validate(self, data):

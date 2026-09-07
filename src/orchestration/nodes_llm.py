@@ -9,7 +9,6 @@ import structlog
 
 from src.common.safety import (
     FALLBACK_REPLY,
-    assess_crisis,
     enforce_crisis_handoff,
     guard_reply,
     scrub_pii,
@@ -80,7 +79,7 @@ def _fmt_score(value: float | None) -> str:
 
 
 def _summary_label_action(facts: dict, cfg: dict) -> tuple[str, str]:
-    from src.orchestration.policies import ACTIONS, summary_label
+    from src.orchestration.policies import summary_label
 
     return summary_label(facts, cfg)
 
