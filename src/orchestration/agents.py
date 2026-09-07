@@ -314,28 +314,28 @@ class BaseAgent:
     def _post(self, url: str, payload: dict) -> dict:
         try:
             r = self.http.post(url, json=payload, timeout=self.timeout_s)
-        except httpx.TimeoutException as e:
-            raise AgentError(ErrorCode.TIMEOUT, str(e)) from e
-        except httpx.ConnectError as e:
-            raise AgentError(ErrorCode.UNREACHABLE, str(e)) from e
-        if r.status_code >= 500:
-            raise AgentError(ErrorCode.UNREACHABLE, f"5xx {r.status_code}") from None
-        if r.status_code >= 400:
-            raise AgentError(ErrorCode.BAD_PAYLOAD, f"4xx {r.status_code}") from None
-        try:
+            if r.status_code >= 500:
+                raise AgentError(ErrorCode.UNREACHABLE, f"5xx {r.status_code}")
+            if r.status_code >= 400:
+                raise AgentError(ErrorCode.BAD_PAYLOAD, f"4xx {r.status_code}")
             return r.json()
+        except AgentError:
+            raise
         except Exception as e:
-            raise AgentError(ErrorCode.BAD_PAYLOAD, str(e)) from e
+            raise AgentError(ErrorCode.UNREACHABLE, str(e)) from e
 
     def _get(self, url: str) -> dict:
         try:
             r = self.http.get(url, timeout=self.timeout_s)
-        except httpx.TimeoutException as e:
-            raise AgentError(ErrorCode.TIMEOUT, str(e)) from e
-        except httpx.ConnectError as e:
+            if r.status_code >= 500:
+                raise AgentError(ErrorCode.UNREACHABLE, f"5xx {r.status_code}")
+            if r.status_code >= 400:
+                raise AgentError(ErrorCode.BAD_PAYLOAD, f"4xx {r.status_code}")
+            return r.json()
+        except AgentError:
+            raise
+        except Exception as e:
             raise AgentError(ErrorCode.UNREACHABLE, str(e)) from e
-        r.raise_for_status()
-        return r.json()
 
     def _emit(self, res, t0, ok):
         outcome = (
