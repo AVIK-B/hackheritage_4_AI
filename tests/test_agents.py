@@ -172,7 +172,7 @@ def test_bulkhead_saturates(cfg):
 # ── idempotency key stability ────────────────────────────────────────────────
 def test_dispatch_idempotency_key_stable(cfg):
     http = FakeHTTP()
-    http.queue("/v1/alerts", {"alert_id": "A1"})
+    http.queue("/v1/alerts", [{"alert_id": "A1"}, {"alert_id": "A1"}])  # TWO responses
     agent = AlertDispatchAgent(cfg, http)
     state = {
         "case_id": "CASE-1",

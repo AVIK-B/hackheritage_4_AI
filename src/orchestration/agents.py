@@ -260,13 +260,13 @@ class BaseAgent:
             res.error, res.degraded = ErrorCode.BREAKER_OPEN, True
             self._emit(res, t0, ok=False)
             return res
-
         last: Exception | None = None
+        last_payload: Any = None
         for attempt in range(1, self.max_attempts + 1):
             try:
-                data = self._validate(self._run(state))
-                self.breaker.record(True)
-                self.health.record(True)
+                raw_result = self._run(state)
+                last_payload = raw_result
+                data = self._validate(raw_result)
                 res = AgentResult(
                     self.name,
                     True,
@@ -293,7 +293,7 @@ class BaseAgent:
 
         if isinstance(last, AgentError) and last.code == ErrorCode.VALIDATION_FAILED:
             with contextlib.suppress(Exception):
-                self.quarantine.put(self.name, state.get("_raw_payload"), last.detail)
+                self.quarantine.put(self.name, last_payload, last.detail)
         res = self._fallback(state, last)
         res.degraded = True
         self._emit(res, t0, ok=False)
@@ -306,6 +306,10 @@ class BaseAgent:
         return AgentResult(self.name, False, error=getattr(err, "code", ErrorCode.INTERNAL), detail=str(err))
 
     def _validate(self, data):
+        s = (data or {}).get("sentiment") or {}
+        assert isinstance(s.get("score"), (int, float)) and 0 <= s["score"] <= 1, (
+            f"sentiment score out of range: {s.get('score')}"
+        )
         return data
 
     def _cache_key(self, state):
