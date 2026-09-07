@@ -195,7 +195,8 @@ class Quarantine:
             "ts": time.time(),
             "agent": agent,
             "reason": reason,
-            "payload": payload if isinstance(payload, (dict, list, str, int, float)) else str(payload)[:2000],
+            # AFTER:
+            "payload": payload if isinstance(payload, dict | list | str | int | float) else str(payload)[:2000],
         }
         with self._lock, open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
