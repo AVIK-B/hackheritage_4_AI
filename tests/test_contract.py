@@ -16,6 +16,7 @@ STATUS_VALUES = {"awaiting_counsellor", "completed"}
 
 def test_interaction_contract_shape():
     from fastapi.testclient import TestClient
+
     from src.orchestration.app import app
 
     with TestClient(app) as c:

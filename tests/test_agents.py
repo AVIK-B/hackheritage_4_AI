@@ -4,9 +4,9 @@ quarantine, cache, idempotency. All dependencies faked; no network."""
 import threading
 
 import pytest
+
 from src.orchestration.agents import (
     AlertDispatchAgent,
-    AgentError,
     ErrorCode,
     FusionAgent,
     Priority,
@@ -15,8 +15,8 @@ from src.orchestration.agents import (
     SummaryAgent,
     ThreatAgent,
     TTLCache,
-    FusionResult,
 )
+from src.orchestration.state import Decision, FusionResult
 
 
 class FakeHTTP:
@@ -26,7 +26,7 @@ class FakeHTTP:
         self.calls: list[tuple] = []
         self._behavior = behavior or {}
 
-    def queue(self, url_part: str, outcomes: list):
+    def queue(self, url_part: str, outcomes: list) -> None:
         self._behavior[url_part] = outcomes
 
     def _next(self, url_part: str):
@@ -88,13 +88,13 @@ def _reset_breakers():
     breakers.reset()
 
 
-# ── TTLCache ─────────────────────────────────────────────────────────────────
+# ── TTLCache ──────────────────────────────────────────────────────────────────
 def test_ttl_cache_roundtrip_and_expiry():
     fake = {"t": 0.0}
     c = TTLCache(ttl_s=0.05, clock=lambda: fake["t"])
     c.put(["k"], {"v": 1})
     assert c.get(["k"]) == {"v": 1}
-    fake["t"] += 1.0  # advance injected clock past TTL
+    fake["t"] += 1.0
     assert c.get(["k"]) is None
 
 
@@ -109,7 +109,7 @@ def test_sentiment_retry_then_success(cfg):
 
 def test_sentiment_fallback_on_persistent_failure(cfg):
     http = FakeHTTP()
-    http.queue("/v1/signals/text", [ConnectionError("down")])  # single -> repeats
+    http.queue("/v1/signals/text", [ConnectionError("down")])
     agent = SentimentAgent(cfg, http)
     res = agent.run({"message": "x", "language": "en"})
     assert res.degraded and res.data["sentiment"]["score"] == 0.5
@@ -119,7 +119,7 @@ def test_sentiment_fallback_on_persistent_failure(cfg):
 def test_bad_payload_goes_to_quarantine(cfg, tmp_path):
     q = Quarantine(str(tmp_path / "q.jsonl"))
     http = FakeHTTP()
-    http.queue("/v1/signals/text", [{"sentiment": {"label": "neg", "score": 9.9}}])  # invalid
+    http.queue("/v1/signals/text", [{"sentiment": {"label": "neg", "score": 9.9}}])
     agent = SentimentAgent(cfg, http)
     agent.quarantine = q
     res = agent.run({"message": "x", "language": "en"})
@@ -143,12 +143,11 @@ def test_fusion_fallback_agreement_vs_disagreement(cfg):
 
 
 # ── bulkhead saturation ──────────────────────────────────────────────────────
-def test_bulkhead_saturates(cfg, monkeypatch):
+def test_bulkhead_saturates(cfg):
     import time as _t
 
     agent = SentimentAgent(cfg, FakeHTTP())
     agent.bulkhead = type(agent.bulkhead)("t", 1)
-    # hold the bulkhead from another thread
     with agent.bulkhead.sem:
         results = []
 
@@ -171,23 +170,21 @@ def test_dispatch_idempotency_key_stable(cfg):
         "case_id": "CASE-1",
         "thread_id": "t",
         "summary_text": "",
-        "decision": __import__("src.orchestration.state", fromlist=["Decision"]).Decision(
-            route="escalate", reasons=["r1"]
-        ),
+        "decision": Decision(route="escalate", reasons=["r1"]),
     }
     agent.run(state)
     agent.run(state)
-    _, _, payload1, h1 = http.calls[0]
-    _, _, payload2, h2 = http.calls[1]
-    assert h1["Idempotency-Key"] == h2["Idempotency-Key"]  # same decision -> same key
+    _, _, _, h1 = http.calls[0]
+    _, _, _, h2 = http.calls[1]
+    assert h1["Idempotency-Key"] == h2["Idempotency-Key"]
 
 
 # ── summary grounding regen + deterministic fallback ─────────────────────────
 class FakeLLM:
     SYSTEM_A = SYSTEM_B = "sys"
-    model_map = {"dialogue": "sahayak", "summary": "casewriter"}
 
     def __init__(self, outs):
+        self.model_map = {"dialogue": "sahayak", "summary": "casewriter"}
         self.outs = list(outs)
         self.calls = []
 
@@ -212,8 +209,10 @@ def test_summary_grounded_ok(cfg):
     http = FakeHTTP()
     llm = FakeLLM(
         [
-            "Risk: HIGH (composite 0.90, confidence 0.85). Stage: trial. "
-            "Key signals: voice_stress_high. Recommended action: schedule a call."
+            (
+                "Risk: HIGH (composite 0.90, confidence 0.85). Stage: trial. "
+                "Key signals: voice_stress_high. Recommended action: schedule a call."
+            )
         ]
     )
     agent = SummaryAgent(cfg, http, llm)
@@ -223,7 +222,6 @@ def test_summary_grounded_ok(cfg):
 
 def test_summary_ungrounded_falls_back_to_deterministic(cfg):
     http = FakeHTTP()
-    # regen consumes both outputs (both ungrounded: 0.99 not in facts)
     llm = FakeLLM(
         [
             "Risk: HIGH (composite 0.99, confidence 0.99). Invented.",

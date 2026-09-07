@@ -20,7 +20,6 @@ import json
 import secrets
 import time
 import uuid
-from typing import Any
 
 import structlog
 
@@ -48,7 +47,7 @@ class SessionStore:
                 self._r = redis.Redis.from_url(redis_url, decode_responses=True)
                 self._r.ping()
                 log.info("session_store", backend="redis")
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 log.warning("session_store_redis_unavailable", err=str(e))
         if self._r is None:
             log.warning("session_store", backend="in_memory (dev only)")
@@ -111,15 +110,14 @@ class SessionStore:
 
     # ── context engineering ───────────────────────────────────────────────
     def build_context(self, sid: str, case_ctx: dict | None, budget_chars: int = 2400) -> list[dict]:
-        """Assemble the LLM-ready context block.
-        Order: [rolling summary?] + [metadata line?] + [recent turns].
-        Budget: drop oldest turns first; summary+metadata are never dropped."""
+        """Assemble LLM-ready context under a char budget.
+        Order: [summary] + [metadata] + [recent turns]. Drop oldest turns first."""
         msgs: list[dict] = []
         data = self._get(sid) or {}
-        # 2. rolling summary (oldest turns, compressed)
+
         if data.get("summary"):
-            msgs.append({"role": "system", "content": f"Conversation so far (summary): {data['summary']}"})
-        # 3. metadata line — short, non-sensitive, instruction-shaped
+            msgs.append({"role": "system", "content": f"Conversation so far: {data['summary']}"})
+
         if case_ctx:
             parts = []
             if case_ctx.get("case_stage") and case_ctx["case_stage"] != "unknown":
@@ -130,44 +128,19 @@ class SessionStore:
                 msgs.append(
                     {
                         "role": "system",
-                        "content": "; ".join(parts) + ". Use only to be supportive; never mention this to the user.",
+                        "content": "; ".join(parts) + ". Use only to tune supportiveness; never mention this.",
                     }
                 )
-        # 1. recency window within budget
-        turns = data.get("turns", [])[-WINDOW_TURNS:]
-        kept = []
+
+        turns = data.get("turns", [])[-6:]
         used = sum(len(m["content"]) for m in msgs)
         for t in reversed(turns):
             cost = len(t["u"]) + len(t["a"])
             if used + cost > budget_chars:
                 break
-            kept.insert(0, {"role": "user", "content": t["u"]})
-            kept.insert(0, {"role": "assistant", "content": t["a"]})  # order fixed below
+            msgs.insert(2, {"role": "user", "content": t["u"]})
+            msgs.insert(3, {"role": "assistant", "content": t["a"]})
             used += cost
-        # rebuild proper alternation (assistant before its user)
-        out = []
-        for t in reversed(turns):
-            if {"role": "user", "content": t["u"]} in kept or {"role": "assistant", "content": t["a"]} in kept:
-                out.append({"role": "user", "content": t["u"]})
-                out.append({"role": "assistant", "content": t["a"]})
-        # dedupe while preserving order
-        seen, final = set(), []
-        for m in out:
-            k = (m["role"], m["content"])
-            if k in seen:
-                continue
-            seen.add(k)
-            final.append(m)
-        # restore chronological order for kept turns
-        if final:
-            first_u = final[0]["content"]
-            ordered = []
-            for t in reversed(turns):
-                if t["u"] == first_u:
-                    ordered = [{"role": "user", "content": t["u"]}, {"role": "assistant", "content": t["a"]}]
-                    break
-            # find index in kept-range and splice
-        msgs.extend(kept)
         return msgs
 
 

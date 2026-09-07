@@ -13,25 +13,35 @@ Invariants:
 
 from __future__ import annotations
 
+import contextlib
 import enum
 import hashlib
 import json
-import queue
+import pathlib
 import random
 import re
 import threading
 import time
-from collections import Counter, deque
-from dataclasses import dataclass, field
+from collections import Counter
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
 import structlog
 
 from src.common.resilience import breakers
-from src.common.safety import CRISIS_COPY, FALLBACK_REPLY, assess_crisis, enforce_crisis_handoff, guard_reply, scrub_pii
+from src.common.safety import (
+    FALLBACK_REPLY,
+    assess_crisis,
+    scrub_pii,
+)
 from src.orchestration.policies import summary_label
-from src.orchestration.state import CrisisAssessment, Decision, ForecastResult, FusionResult
+from src.orchestration.state import (
+    CrisisAssessment,
+    Decision,
+    ForecastResult,
+    FusionResult,
+)
 
 log = structlog.get_logger()
 
@@ -41,7 +51,10 @@ try:
 
     AGENT_CALLS = Counter("agent_calls_total", "agent calls", ["agent", "outcome"])
     AGENT_LAT = Histogram(
-        "agent_latency_seconds", "agent latency", ["agent"], buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20)
+        "agent_latency_seconds",
+        "agent latency",
+        ["agent"],
+        buckets=(0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20),
     )
     AGENT_HEALTH = Gauge("agent_health_score", "rolling success 0-1", ["agent"])
     AGENT_INFLIGHT = Gauge("agent_inflight", "bulkhead occupancy", ["agent"])
@@ -69,7 +82,7 @@ except Exception:  # pragma: no cover
 
 
 # ═══════════════════════════ error taxonomy ════════════════════════════════
-class ErrorCode(str, enum.Enum):
+class ErrorCode(enum.StrEnum):
     BREAKER_OPEN = "BREAKER_OPEN"
     TIMEOUT = "TIMEOUT"
     UNREACHABLE = "UNREACHABLE"
@@ -104,8 +117,6 @@ class AgentResult:
 
 # ═══════════════════════════ infrastructure ════════════════════════════════
 class Deadline:
-    """Per-request time budget (Google SRE deadline propagation)."""
-
     def __init__(self, budget_ms: float):
         self.t0 = time.perf_counter()
         self.budget_ms = budget_ms
@@ -116,9 +127,9 @@ class Deadline:
 
 
 class Priority(enum.Enum):
-    CRITICAL = 0  # never deadline-skipped
-    HIGH = 1  # skipped when budget < 20%
-    BEST_EFFORT = 2  # skipped when budget < 60%
+    CRITICAL = 0
+    HIGH = 1
+    BEST_EFFORT = 2
 
 
 class TTLCache:
@@ -134,7 +145,7 @@ class TTLCache:
         k = self._key(parts)
         with self._lock:
             hit = self._d.get(k)
-            if hit and time.monotonic() - hit[0] <= self.ttl:
+            if hit and self._clock() - hit[0] <= self.ttl:
                 return hit[1]
             self._d.pop(k, None)
             return None
@@ -143,7 +154,7 @@ class TTLCache:
         with self._lock:
             if len(self._d) >= self.maxsize:
                 self._d.pop(next(iter(self._d)), None)
-            self._d[self._key(parts)] = (time.monotonic(), val)
+            self._d[self._key(parts)] = (self._clock(), val)
 
 
 class Bulkhead:
@@ -159,8 +170,6 @@ class Bulkhead:
 
 
 class HealthWindow:
-    """EMA success score -> degradation level (Netflix Hystrix rolling stats)."""
-
     def __init__(self, alpha: float = 0.3):
         self.alpha, self._ema = alpha, 1.0
 
@@ -176,8 +185,6 @@ class HealthWindow:
 
 
 class Quarantine:
-    """Poison-payload preservation (poison-pill pattern)."""
-
     def __init__(self, path: str = "./data/quarantine.jsonl"):
         self.path = pathlib.Path(path)
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -192,9 +199,6 @@ class Quarantine:
         }
         with self._lock, open(self.path, "a", encoding="utf-8") as f:
             f.write(json.dumps(rec, ensure_ascii=False) + "\n")
-
-
-import pathlib  # noqa: E402  (used by Quarantine)
 
 
 # ═══════════════════════════ base agent ════════════════════════════════════
@@ -212,14 +216,13 @@ class BaseAgent:
         self.breaker = breakers.get(self.name)
         self.bulkhead = Bulkhead(self.name, self.bulkhead_size)
         self.health = HealthWindow()
-        self.cache = None  # registry binds a shared TTLCache; tests run without
-        self.quarantine = None  # tests may inject a local Quarantine
+        self.cache = None
+        self.quarantine = None
 
     def run(self, state: dict) -> AgentResult:
         t0 = time.perf_counter()
         deadline: Deadline | None = state.get("_deadline")
 
-        # deadline-aware skip (non-critical only)
         if deadline and self.priority != Priority.CRITICAL:
             frac = deadline.fraction_left()
             limit = 0.6 if self.priority == Priority.BEST_EFFORT else 0.2
@@ -280,26 +283,22 @@ class BaseAgent:
                 last = e
                 self.breaker.record(False)
                 self.health.record(False)
-            except Exception as e:  # noqa: BLE001 -- agent boundary
+            except Exception as e:
                 last = AgentError(ErrorCode.INTERNAL, str(e))
                 self.breaker.record(False)
                 self.health.record(False)
             log.warning("agent_attempt_failed", agent=self.name, attempt=attempt, err=str(last))
             if attempt < self.max_attempts:
-                # jittered exponential backoff (AWS: thundering-herd prevention)
                 time.sleep(self.backoff_base_s * (2 ** (attempt - 1)) * (0.5 + random.random()))
 
         if isinstance(last, AgentError) and last.code == ErrorCode.VALIDATION_FAILED:
-            try:
+            with contextlib.suppress(Exception):
                 self.quarantine.put(self.name, state.get("_raw_payload"), last.detail)
-            except Exception:  # noqa: BLE001
-                pass
         res = self._fallback(state, last)
         res.degraded = True
         self._emit(res, t0, ok=False)
         return res
 
-    # hooks
     def _run(self, state) -> Any:
         raise NotImplementedError
 
@@ -312,30 +311,29 @@ class BaseAgent:
     def _cache_key(self, state):
         return None
 
-    # http helpers with typed errors
-    def _post(self, url, payload):
+    def _post(self, url: str, payload: dict) -> dict:
         try:
             r = self.http.post(url, json=payload, timeout=self.timeout_s)
         except httpx.TimeoutException as e:
-            raise AgentError(ErrorCode.TIMEOUT, str(e))
+            raise AgentError(ErrorCode.TIMEOUT, str(e)) from e
         except httpx.ConnectError as e:
-            raise AgentError(ErrorCode.UNREACHABLE, str(e))
+            raise AgentError(ErrorCode.UNREACHABLE, str(e)) from e
         if r.status_code >= 500:
-            raise AgentError(ErrorCode.UNREACHABLE, f"5xx {r.status_code}")
+            raise AgentError(ErrorCode.UNREACHABLE, f"5xx {r.status_code}") from None
         if r.status_code >= 400:
-            raise AgentError(ErrorCode.BAD_PAYLOAD, f"{r.status_code}")
+            raise AgentError(ErrorCode.BAD_PAYLOAD, f"4xx {r.status_code}") from None
         try:
             return r.json()
         except Exception as e:
-            raise AgentError(ErrorCode.BAD_PAYLOAD, str(e))
+            raise AgentError(ErrorCode.BAD_PAYLOAD, str(e)) from e
 
-    def _get(self, url):
+    def _get(self, url: str) -> dict:
         try:
             r = self.http.get(url, timeout=self.timeout_s)
         except httpx.TimeoutException as e:
-            raise AgentError(ErrorCode.TIMEOUT, str(e))
+            raise AgentError(ErrorCode.TIMEOUT, str(e)) from e
         except httpx.ConnectError as e:
-            raise AgentError(ErrorCode.UNREACHABLE, str(e))
+            raise AgentError(ErrorCode.UNREACHABLE, str(e)) from e
         r.raise_for_status()
         return r.json()
 
@@ -374,7 +372,7 @@ class CrisisPrecheckAgent(BaseAgent):
         text = scrub_pii(state.get("message", ""))
         lang = state.get("language", "en")
         a = assess_crisis(text, lang)
-        try:  # optional enrichment from Sohon's threat svc (best effort)
+        try:
             r = self.http.post(
                 f"{self.cfg['services']['scoring']}/v1/signals/threat",
                 json={"text": text, "lang": lang},
@@ -383,9 +381,9 @@ class CrisisPrecheckAgent(BaseAgent):
             if r.ok:
                 prob = (r.json() or {}).get("threat", {}).get("prob", 0)
                 if prob and prob >= 0.9:
-                    a["hits"] = list(a["hits"]) + [f"threat_svc:{prob:.2f}"]
-        except Exception:  # noqa: BLE001
-            pass
+                    a["hits"] = [*list(a["hits"]), f"threat_svc:{prob:.2f}"]
+        except Exception as enrichment_err:
+            log.debug("threat_enrichment_skipped", err=str(enrichment_err))
         return CrisisAssessment(**a)
 
     def _fallback(self, state, err):
@@ -446,7 +444,6 @@ class ThreatAgent(BaseAgent):
         return data
 
     def _fallback(self, state, err):
-        # conservative: assumed mid-high so the confidence floor RISES, never drops
         return AgentResult(
             self.name,
             False,
@@ -600,9 +597,6 @@ class ForecastAgent(BaseAgent):
 
 
 class AlertDispatchAgent(BaseAgent):
-    """Idempotent dispatch: Idempotency-Key header lets the backend dedup
-    safe retries server-side (Stripe pattern)."""
-
     name = "alert_dispatch"
     timeout_s = 5.0
     max_attempts = 3
@@ -629,9 +623,9 @@ class AlertDispatchAgent(BaseAgent):
             timeout=self.timeout_s,
         )
         if r.status_code >= 500:
-            raise AgentError(ErrorCode.UNREACHABLE, f"5xx {r.status_code}")
+            raise AgentError(ErrorCode.UNREACHABLE, f"5xx {r.status_code}") from None
         if r.status_code >= 400:
-            raise AgentError(ErrorCode.BAD_PAYLOAD, f"{r.status_code}")
+            raise AgentError(ErrorCode.BAD_PAYLOAD, f"{r.status_code}") from None
         return r.json()
 
     def _validate(self, data):
@@ -650,9 +644,6 @@ class AlertDispatchAgent(BaseAgent):
 
 
 class ConversationAgent(BaseAgent):
-    """Victim-facing dialogue (adapter A). Fallback ladder:
-    L1 sampled -> L2 cold decode -> L3 templated. Crisis-enforced output."""
-
     name = "conversation"
     timeout_s = 25.0
     max_attempts = 2
@@ -689,7 +680,7 @@ class ConversationAgent(BaseAgent):
         try:
             return self.llm.chat(self.llm.model_map["dialogue"], msgs, temperature=0.6, max_tokens=220)
         except Exception:
-            return self.llm.chat(self.llm.model_map["dialogue"], msgs, temperature=0.3, max_tokens=220)  # L2: colder
+            return self.llm.chat(self.llm.model_map["dialogue"], msgs, temperature=0.3, max_tokens=220)
 
     def _validate(self, data):
         assert isinstance(data, str) and len(data.strip()) >= 2
@@ -707,10 +698,6 @@ class ConversationAgent(BaseAgent):
 
 
 class SummaryAgent(BaseAgent):
-    """Counsellor summary (adapter B). Grounding guard: ungrounded numbers
-    trigger a colder regeneration, then the DETERMINISTIC policy-mirrored
-    template (thresholds shared with policies.py -- zero drift)."""
-
     name = "summary"
     timeout_s = 20.0
     max_attempts = 2
@@ -765,10 +752,9 @@ class SummaryAgent(BaseAgent):
 
     def _fallback(self, state, err):
         facts = self._facts(state)
-        dec = state.get("decision")
+        state.get("decision")
         label, action = summary_label(facts, self.cfg)
 
-        # deterministic, policy-mirrored, grounded by construction
         def fm(x):
             return "data unavailable" if x is None else f"{x:.2f}"
 

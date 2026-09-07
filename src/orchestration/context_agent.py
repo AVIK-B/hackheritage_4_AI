@@ -6,11 +6,11 @@ Sources, merged by priority:
 Assembled under a hard char budget; metadata dropped first if over."""
 
 import structlog
-from src.common.safety import scrub_pii
-from src.orchestration.agents import BaseAgent, AgentError, ErrorCode
+
+from src.orchestration.agents import AgentResult, BaseAgent, ErrorCode, Priority
 
 log = structlog.get_logger()
-HARD_CAP = 1400  # metadata + summary + turns, chars (≈350 tokens)
+HARD_CAP = 1400
 META_CAP = 220
 
 

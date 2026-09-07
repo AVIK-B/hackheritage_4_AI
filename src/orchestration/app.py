@@ -172,7 +172,7 @@ def interact_stream(req: Interaction, role: str = Depends(auth.require("victim")
                 },
                 stream_q=q,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             result["err"] = str(e)
         q.put(None)
 
@@ -185,22 +185,18 @@ def interact_stream(req: Interaction, role: str = Depends(auth.require("victim")
                 break
             yield f"data: {json.dumps({'delta': chunk})}\n\n"
         final = result.get("final")
+        # replace the yield block in gen() of interact_stream:
         if final:
             awaiting = final["decision"].route == "escalate" and not final.get("dispatched")
-            yield f"data: {
-                json.dumps(
-                    {
-                        'final': {
-                            'thread_id': final['thread_id'],
-                            'status': 'awaiting_counsellor' if awaiting else 'completed',
-                            'audit_ref': final.get('audit_ref'),
-                            'reply': final.get('reply', ''),
-                        }
-                    }
-                )
-            }\n\n"
+            payload = {
+                "thread_id": final["thread_id"],
+                "status": "awaiting_counsellor" if awaiting else "completed",
+                "audit_ref": final.get("audit_ref"),
+                "reply": final.get("reply", ""),
+            }
+            yield "data: " + json.dumps({"final": payload}) + "\n\n"
         else:
-            yield f"data: {json.dumps({'error': result.get('err', 'internal_error')})}\n\n"
+            yield "data: " + json.dumps({"error": result.get("err", "internal_error")}) + "\n\n"
 
     return StreamingResponse(
         gen(), media_type="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}

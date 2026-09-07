@@ -131,14 +131,10 @@ def guard_reply(text: str, lang: str = "en") -> str:
 
 
 def enforce_crisis_handoff(user_text: str, reply: str, lang: str = "en") -> str:
-    """LAST LINE OF DEFENSE (system-level guarantee).
-
-    If the user text matches crisis lexicon, the reply MUST contain a
-    handoff. If the model drifted, substitute the templated crisis copy.
-    Deterministic; cannot fail; runs on every victim-facing reply."""
     if not user_text:
         return reply
-    if assess_crisis(user_text, lang)["is_crisis"]:
-        if not any(tok in reply.lower() for tok in ("counsellor", "काउंसलर")):
-            return CRISIS_COPY.get(lang, CRISIS_COPY["en"])
+    if assess_crisis(user_text, lang)["is_crisis"] and not any(
+        tok in reply.lower() for tok in ("counsellor", "काउंसलर")
+    ):
+        return CRISIS_COPY.get(lang, CRISIS_COPY["en"])
     return reply
