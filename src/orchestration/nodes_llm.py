@@ -47,7 +47,11 @@ def respond(state, *, cfg, llm, registry=None) -> dict:
     """Victim-facing reply (adapter A). Streams into state['stream_q'] when present."""
     history = _recent_messages(state.get("case_ctx", {}))
     context = _dialogue_context(state)
-    msgs = [{"role": "system", "content": llm.SYSTEM_A}]
+    # In respond():
+
+# With:
+    SYSTEM_EXTENDED = open("prompts/sahayak_system_extended.txt", encoding="utf-8").read().strip()
+    msgs = [{"role": "system", "content": SYSTEM_EXTENDED}]
     if context:
         msgs.append(context)
     msgs.extend([*history, {"role": "user", "content": state["message"]}])
