@@ -309,7 +309,7 @@ class BaseAgent:
 
     def _validate(self, data):
         s = (data or {}).get("sentiment") or {}
-        assert isinstance(s.get("score"), (int, float)) and 0 <= s["score"] <= 1, (
+        assert isinstance(s.get("score"), (int | float)) and 0 <= s["score"] <= 1, (
             f"sentiment score out of range: {s.get('score')}"
         )
         return data
@@ -417,7 +417,7 @@ class SentimentAgent(BaseAgent):
 
     def _validate(self, data):
         s = (data or {}).get("sentiment") or {}
-        assert isinstance(s.get("score"), (int, float)) and 0 <= s["score"] <= 1, (
+        assert isinstance(s.get("score"), (int | float)) and 0 <= s["score"] <= 1, (
             f"sentiment score out of range: {s.get('score')}"
         )
         return data
@@ -448,7 +448,7 @@ class ThreatAgent(BaseAgent):
 
     def _validate(self, data):
         t = (data or {}).get("threat") or {}
-        assert isinstance(t.get("prob"), (int, float)) and 0 <= t["prob"] <= 1
+        assert isinstance(t.get("prob"), (int | float)) and 0 <= t["prob"] <= 1
         return data
 
     def _fallback(self, state, err):
@@ -472,7 +472,7 @@ class VoiceAgent(BaseAgent):
         return self._post(f"{self.cfg['services']['scoring']}/v1/signals/voice", {"audio_ref": state["audio_ref"]})
 
     def _validate(self, data):
-        assert isinstance(((data or {}).get("voice_stress") or {}).get("score"), (int, float))
+        assert isinstance(((data or {}).get("voice_stress") or {}).get("score"), (int | float))
         return data
 
     def _fallback(self, state, err):
