@@ -297,6 +297,7 @@ class BaseAgent:
         res = self._fallback(state, last)
         res.degraded = True
         self._emit(res, t0, ok=False)
+
         return res
 
     def _run(self, state) -> Any:
