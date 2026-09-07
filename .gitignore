@@ -18,3 +18,5 @@ adapter_model.safetensors
 tokenizer.json
 tokenizer_config.json
 *.egg-info/
+
+*.egg-info/
