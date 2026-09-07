@@ -100,14 +100,12 @@ async def unhandled(request: Request, exc: Exception):
 
 def _invoke(init: dict, stream_q: queue.Queue | None = None) -> dict:
     init.setdefault("thread_id", uuid.uuid4().hex)
-    init["_deadline"] = __import__("src.orchestration.agents", fromlist=["Deadline"]).Deadline(
-        budget_ms=settings.request_budget_ms
-    )
     cfg = {"configurable": {"thread_id": init["thread_id"]}}
     if stream_q is not None:
         init["stream_q"] = stream_q
     with _state["gate"], GRAPH_LAT.time():
         final = _state["graph"].invoke(init, cfg)
+    ...
     INTERACTIONS.labels(final["decision"].route, init["channel"]).inc()
     final["thread_id"] = init["thread_id"]
 

@@ -1,23 +1,22 @@
+"""Graph-facing wrappers. All fallback/validation logic lives in agents.py."""
+
 import json
 import queue
 import re
 
+import httpx
 import structlog
 
-from src.common.safety import FALLBACK_REPLY, guard_reply, scrub_pii
+from src.common.safety import (
+    FALLBACK_REPLY,
+    assess_crisis,
+    enforce_crisis_handoff,
+    guard_reply,
+    scrub_pii,
+)
 
 log = structlog.get_logger()
 _ALLOWED_HISTORY_ROLES = {"user", "assistant"}
-_SUMMARY_ACTIONS = {
-    "ESCALATE-24H": "Schedule a counsellor check-in call within 24 hours.",
-    "VERIFY-HUMAN-24H": "Schedule a human check-in call within 24 hours to verify before escalation.",
-    "HUMAN-72H": "Assign a human check-in call within 72 hours to disambiguate.",
-    "HUMAN-48H": "Schedule a human check-in within 48 hours and screen for intimidation per protocol.",
-    "MONITOR-CLOSELY": "Keep the case on the counsellor watchlist and re-evaluate after the next check-in.",
-    "ROUTINE": "Continue routine scheduled check-ins.",
-    "PROACTIVE-24H": "Schedule a proactive check-in within 24 hours.",
-    "REQUEST FIELDS": "Request missing triage fields before escalation beyond routine monitoring.",
-}
 
 
 def _recent_messages(case_ctx: dict, limit: int = 6) -> list[dict[str, str]]:
@@ -45,7 +44,7 @@ def _dialogue_context(state: dict) -> dict[str, str] | None:
     return {"role": "system", "content": " ".join(parts)}
 
 
-def respond(state, *, cfg, llm) -> dict:
+def respond(state, *, cfg, llm, registry=None) -> dict:
     """Victim-facing reply (adapter A). Streams into state['stream_q'] when present."""
     history = _recent_messages(state.get("case_ctx", {}))
     context = _dialogue_context(state)
@@ -72,6 +71,7 @@ def respond(state, *, cfg, llm) -> dict:
     if not text:
         text = FALLBACK_REPLY.get(lang, FALLBACK_REPLY["en"])
         return {"reply": text, "errors": [*state.get("errors", []), "llm:empty_reply"]}
+    text = enforce_crisis_handoff(state.get("message", ""), text, lang)
     return {"reply": text}
 
 
@@ -80,34 +80,9 @@ def _fmt_score(value: float | None) -> str:
 
 
 def _summary_label_action(facts: dict, cfg: dict) -> tuple[str, str]:
-    policies = cfg.get("policies", {})
-    escalate_score = policies.get("escalate_score", 0.75)
-    moderate_score = 0.8 * escalate_score
-    confidence_floor = policies.get("escalate_confidence_floor", 0.45)
-    forecast_threshold = policies.get("forecast_escalation_prob", 0.60)
+    from src.orchestration.policies import ACTIONS, summary_label
 
-    score = facts["composite_score"]
-    confidence = facts["confidence"]
-    top_signals = facts.get("top_signals") or []
-    threat = "threat_language_detected" in top_signals
-
-    if score is None:
-        return "INSUFFICIENT DATA", _SUMMARY_ACTIONS["REQUEST FIELDS"]
-    if score >= escalate_score:
-        if confidence is not None and confidence < confidence_floor:
-            return "HIGH (LOW CONFIDENCE)", _SUMMARY_ACTIONS["VERIFY-HUMAN-24H"]
-        return "HIGH", _SUMMARY_ACTIONS["ESCALATE-24H"]
-    if score >= moderate_score:
-        if confidence is not None and confidence < confidence_floor:
-            return "MODERATE (LOW CONFIDENCE)", _SUMMARY_ACTIONS["HUMAN-72H"]
-        if threat:
-            return "MODERATE (THREAT SIGNAL)", _SUMMARY_ACTIONS["HUMAN-48H"]
-        return "MODERATE", _SUMMARY_ACTIONS["MONITOR-CLOSELY"]
-    if threat:
-        return "LOW (THREAT SIGNAL)", _SUMMARY_ACTIONS["HUMAN-72H"]
-    if facts["p_escalation"] is not None and facts["p_escalation"] >= forecast_threshold:
-        return "LOW (FORECAST ALERT)", _SUMMARY_ACTIONS["PROACTIVE-24H"]
-    return "LOW", _SUMMARY_ACTIONS["ROUTINE"]
+    return summary_label(facts, cfg)
 
 
 def _render_summary(facts: dict, cfg: dict) -> str:
@@ -144,8 +119,8 @@ def _is_grounded_summary(text: str, facts: dict) -> bool:
     return not unsupported
 
 
-def summarize(state, *, cfg, llm) -> dict:
-    """Counsellor-facing summary (adapter B) over ONLY structured facts — RAG-grounded shape."""
+def summarize(state, *, cfg, llm, registry=None) -> dict:
+    """Counsellor-facing summary (adapter B) over ONLY structured facts."""
     f = state.get("fusion")
     fc = state.get("forecast")
     facts = {
@@ -176,3 +151,32 @@ def summarize(state, *, cfg, llm) -> dict:
         log.warning("summary_degraded", thread=state["thread_id"], err=str(e))
         return {"summary_text": deterministic, "errors": [*state.get("errors", []), "summary:fallback"]}
     return {"summary_text": text}
+
+
+def dispatch(state, *, cfg, llm, registry=None) -> dict:
+    """Alert dispatch (adapter-independent). Dead-letters on failure."""
+    dec = state.get("decision")
+    try:
+        from src.common.resilience import breakers
+
+        br = breakers.get("backend:alerts")
+        if not br.allow():
+            raise ConnectionError("breaker_open:backend:alerts")
+        r = httpx.post(
+            f"{cfg['services']['backend']}/v1/alerts",
+            json={
+                "case_id": state["case_id"],
+                "severity": dec.route if dec else "unknown",
+                "reasons": dec.reasons if dec else [],
+                "summary_text": state.get("summary_text", ""),
+            },
+            timeout=5.0,
+        )
+        r.raise_for_status()
+        br.record(True)
+        return {"dispatched": True, "alert_id": r.json()["alert_id"]}
+    except Exception as e:
+        br = breakers.get("backend:alerts")
+        br.record(False)
+        log.error("alert_dispatch_deadletter", case_id=state.get("case_id"), err=str(e))
+        return {"dispatched": False, "errors": [*state.get("errors", []), "alert:dispatch_failed"]}

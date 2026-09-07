@@ -23,8 +23,13 @@ def build(cfg: dict, http, llm, checkpointer=None):
     def agent_node(cls):
         agent = registry.get(cls)
 
-        def _node(state: S) -> dict:
+        def _node(state: S, config=None) -> dict:
+            from src.orchestration.agents import Deadline
+
+            deadline = Deadline(budget_ms=12000)  # or read from config
+            state = {**state, "_deadline": deadline}
             res = agent.run(state)
+            ...
             upd: dict = {
                 "_agent_telemetry": {
                     **(state.get("_agent_telemetry") or {}),
@@ -35,11 +40,10 @@ def build(cfg: dict, http, llm, checkpointer=None):
                 upd["crisis"] = res.data
             elif cls is ContextAgent:
                 upd["case_ctx"] = res.data
-                upd["language"] = res.data.get("language", state.get("language", "en"))
-            elif cls in (SentimentAgent, ThreatAgent):
-                sig = dict(state.get("signals") or {})
-                sig["sentiment" if cls is SentimentAgent else "threat"] = res.data
-                upd["signals"] = sig
+            elif cls is SentimentAgent:
+                upd["signals"] = {**(state.get("signals") or {}), "sentiment": res.data}
+            elif cls is ThreatAgent:
+                upd["signals"] = {**(state.get("signals") or {}), "threat": res.data}
             elif cls is VoiceAgent and res.data is not None:
                 upd["signals"] = {**(state.get("signals") or {}), "voice": res.data}
             elif cls is FusionAgent and res.data is not None:
@@ -98,9 +102,9 @@ def build(cfg: dict, http, llm, checkpointer=None):
     g.add_node("forecast", agent_node(ForecastAgent))
     g.add_node("decide", decide)
     g.add_node("victim_handoff", victim_handoff)
-    g.add_node("respond", lambda s: ln.respond(s, cfg=cfg, llm=llm, registry=registry))
-    g.add_node("summarize", lambda s: ln.summarize(s, cfg=cfg, llm=llm, registry=registry))
-    g.add_node("dispatch", lambda s: ln.dispatch(s, cfg=cfg, llm=llm, registry=registry))
+    g.add_node("respond", lambda s: ln.respond(s, cfg=cfg, llm=llm, registry=None))
+    g.add_node("summarize", lambda s: ln.summarize(s, cfg=cfg, llm=llm, registry=None))
+    g.add_node("dispatch", lambda s: ln.dispatch(s, cfg=cfg, llm=llm, registry=None))
     g.add_node("audit", lambda s: s.get("_audit_passthrough", {}))
 
     g.add_edge(START, "crisis_precheck")

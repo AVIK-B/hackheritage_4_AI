@@ -1,9 +1,6 @@
 from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-request_budget_ms: int = 12000
-audit_hmac_key: str = "dev-only-change-me"
-
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ORCH_", env_file=".env", extra="ignore")
@@ -41,6 +38,9 @@ class Settings(BaseSettings):
     rate_limit_rpm: int = 60
     max_concurrent_graphs: int = 6
     max_message_chars: int = 4000
+    request_budget_ms: int = 12000
+    audit_hmac_key: str = "dev-only-change-me"
+    redis_url: str | None = None
     allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     @field_validator("policies")
