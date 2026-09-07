@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str = "EMPTY"
     llm_model_map: dict[str, str] = Field(default_factory=lambda: {"dialogue": "sahayak", "summary": "casewriter"})
-    llm_timeout_s: int = 25
+    llm_timeout_s: int = 120
 
     services: dict[str, str] = Field(
         default_factory=lambda: {
