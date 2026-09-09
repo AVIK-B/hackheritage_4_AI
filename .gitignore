@@ -5,7 +5,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .ruff_cache/
-data/
+
 adapters/
 merged/
 *.gguf

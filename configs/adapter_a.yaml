@@ -12,7 +12,7 @@ training:
   learning_rate: 1.5e-4
   warmup_ratio: 0.03
   lr_scheduler_type: cosine
-  max_seq_len: 1024
+  max_seq_len: 2048
   seed: 42
   logging_steps: 20
   eval_steps: 200
