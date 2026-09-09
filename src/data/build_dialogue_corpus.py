@@ -1201,14 +1201,15 @@ def load_public(rng: random.Random, cap: int) -> list[dict]:
             out += to_pair(msgs, thread_id=tid, risk_tag="ed")
             if len(out) >= cap * 2:
                 break
+        MEDICAL_FILTER = (r"\btablets?\b", r"\bdose\b", r"\bpill\b",
+                          r"take \d+ (tablet|pill|capsule|spoon|mg)", r"\bmedicine\b")
         out = [
             p
             for p in out
-            # min_words raised 3 -> 15: filters out the short backchannel-style ED
-            # lines that were a major source of shortness/genericness at v3.2 defaults
             if len(p["target"].split()) >= 15
             and not NAME_LEAK.search(p["target"])
             and not any(re.search(pat, p["target"].lower()) for pat in COMMITTING)
+            and not any(re.search(pat, p["target"].lower()) for pat in MEDICAL_FILTER)
         ]
         rng.shuffle(out)
         return out[:cap]
