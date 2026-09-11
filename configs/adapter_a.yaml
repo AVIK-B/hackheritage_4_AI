@@ -1,7 +1,7 @@
 run_name: adapter_a_sahayak_v6
 base_model: sarvamai/sarvam-1
 data:
-  format: chat_template         # <-- CHANGED: to read multi-turn messages
+  format: chat_template      # <-- CHANGED: to read multi-turn messages
   train: data/processed/dialogue_train.jsonl
   val: data/processed/dialogue_val.jsonl
 training:
