@@ -132,7 +132,7 @@ def main(cfg_path):
         num_train_epochs=t["num_train_epochs"],
         per_device_train_batch_size=t["per_device_train_batch_size"],
         gradient_accumulation_steps=t["gradient_accumulation_steps"],
-        learning_rate=t["learning_rate"],
+        learning_rate=float(t["learning_rate"]),
         warmup_ratio=t["warmup_ratio"],
         lr_scheduler_type=t["lr_scheduler_type"],
         fp16=True,
