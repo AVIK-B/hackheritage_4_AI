@@ -91,13 +91,14 @@ def main(cfg_path):
     )
 
     # SFTTrainer handles the chat_template formatting and -100 masking automatically
+    # SFTTrainer handles the chat_template formatting and -100 masking automatically
     trainer = SFTTrainer(
         model=model,
         args=args,
         train_dataset=train_ds,
         eval_dataset=val_ds,
         peft_config=None,  # Already applied above
-        tokenizer=tok,
+        processing_class=tok,  # <-- CHANGED from `tokenizer=tok` to `processing_class=tok`
         max_seq_length=t["max_seq_len"],
         dataset_text_field="messages", # Tells SFTTrainer to use the messages array
     )
