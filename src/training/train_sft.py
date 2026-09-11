@@ -12,7 +12,8 @@ from transformers import (
     TrainingArguments,
     set_seed,
 )
-from trl import SFTTrainer  # <-- Use TRL's SFTTrainer
+from trl import SFTTrainer, SFTConfig  # <-- ADD SFTConfig
+
 
 def main(cfg_path):
     with open(cfg_path, encoding="utf-8") as fh:
@@ -66,7 +67,7 @@ def main(cfg_path):
     except Exception:
         pass
 
-    args = TrainingArguments(
+    args = SFTConfig(
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
         per_device_train_batch_size=t["per_device_train_batch_size"],
@@ -87,6 +88,8 @@ def main(cfg_path):
         group_by_length=True,
         seed=t["seed"],
         dataloader_num_workers=2,
+        max_seq_length=t["max_seq_len"],  # <-- MOVED HERE
+        dataset_text_field="messages",    # <-- MOVED HERE
         **kwargs,
     )
 
@@ -98,9 +101,7 @@ def main(cfg_path):
         train_dataset=train_ds,
         eval_dataset=val_ds,
         peft_config=None,  # Already applied above
-        processing_class=tok,  # <-- CHANGED from `tokenizer=tok` to `processing_class=tok`
-        max_seq_length=t["max_seq_len"],
-        dataset_text_field="messages", # Tells SFTTrainer to use the messages array
+        processing_class=tok,
     )
 
     trainer.train(resume_from_checkpoint=os.environ.get("RESUME") or None)
