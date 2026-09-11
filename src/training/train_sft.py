@@ -139,7 +139,7 @@ def main(cfg_path):
         fp16=True,
         bf16=False,
         max_grad_norm=1.0,
-        gradient_checkpointing=True,
+        gradient_checkpointing=t.get("gradient_checkpointing", False), # <-- Change this line,
         logging_steps=t["logging_steps"],
         eval_strategy="steps",
         eval_steps=t["eval_steps"],
