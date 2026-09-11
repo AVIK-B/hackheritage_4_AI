@@ -106,7 +106,7 @@ def main(cfg_path):
         trust_remote_code=True,
     )
     model.config.use_cache = False
-    model = prepare_model_for_kbit_training(model)
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
     model = get_peft_model(
         model,
         LoraConfig(
@@ -131,15 +131,15 @@ def main(cfg_path):
     args = TrainingArguments(
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
-        per_device_train_batch_size=t["per_device_train_batch_size"],
-        gradient_accumulation_steps=t["gradient_accumulation_steps"],
+        per_device_train_batch_size=4,   # <-- HARDCODED
+        gradient_accumulation_steps=4,   # <-- HARDCODED
         learning_rate=float(t["learning_rate"]),
         warmup_ratio=t["warmup_ratio"],
         lr_scheduler_type=t["lr_scheduler_type"],
         fp16=True,
         bf16=False,
         max_grad_norm=1.0,
-        gradient_checkpointing=False,  # <-- HARDCODED TO FALSE
+        gradient_checkpointing=False,    # <-- HARDCODED
         logging_steps=t["logging_steps"],
         eval_strategy="steps",
         eval_steps=t["eval_steps"],
