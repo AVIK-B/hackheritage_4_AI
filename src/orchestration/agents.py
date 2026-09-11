@@ -505,7 +505,6 @@ class ContextAgent(BaseAgent):
                 "language": state.get("language", "en"),
                 "consent_scopes": [],
                 "recent_checkins": [],
-                "recent_messages": [],
                 "score_history": [],
                 "_degraded": True,
             },

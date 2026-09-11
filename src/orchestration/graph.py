@@ -38,8 +38,16 @@ def build(cfg: dict, http, llm, checkpointer=None):
             }
             if cls is CrisisPrecheckAgent:
                 upd["crisis"] = res.data
+            if cls is CrisisPrecheckAgent:
+                upd["crisis"] = res.data
             elif cls is ContextAgent:
-                upd["case_ctx"] = res.data
+                # MERGE to prevent wiping recent_messages when backend fails
+                existing_ctx = state.get("case_ctx") or {}
+                incoming_ctx = res.data or {}
+                if "recent_messages" not in incoming_ctx and "recent_messages" in existing_ctx:
+                    incoming_ctx["recent_messages"] = existing_ctx["recent_messages"]
+                upd["case_ctx"] = incoming_ctx
+            
             elif cls is SentimentAgent:
                 upd["signals"] = {**(state.get("signals") or {}), "sentiment": res.data}
             elif cls is ThreatAgent:

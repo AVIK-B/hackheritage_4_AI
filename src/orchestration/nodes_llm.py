@@ -75,7 +75,16 @@ def respond(state, *, cfg, llm, registry=None) -> dict:
         text = FALLBACK_REPLY.get(lang, FALLBACK_REPLY["en"])
         return {"reply": text, "errors": [*state.get("errors", []), "llm:empty_reply"]}
     text = enforce_crisis_handoff(state.get("message", ""), text, lang)
-    return {"reply": text}
+    text = enforce_crisis_handoff(state.get("message", ""), text, lang)
+    
+    # ADD THIS: Save the current turn to case_ctx so LangGraph stores it
+    case_ctx = state.get("case_ctx") or {}
+    recent = case_ctx.get("recent_messages", [])
+    recent.append({"role": "user", "content": state["message"]})
+    recent.append({"role": "assistant", "content": text})
+    case_ctx["recent_messages"] = recent[-10:] # Keep last 10 messages (5 turns)
+
+    return {"reply": text, "case_ctx": case_ctx}
 
 
 def _fmt_score(value: float | None) -> str:
