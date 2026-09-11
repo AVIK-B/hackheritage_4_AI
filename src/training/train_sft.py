@@ -106,7 +106,9 @@ def main(cfg_path):
         trust_remote_code=True,
     )
     model.config.use_cache = False
-    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=False)
+    # 1. Tell the model prep to use the faster checkpointing method
+    model = prepare_model_for_kbit_training(model, use_gradient_checkpointing="unsloth") 
+    # Note: If "unsloth" throws an error, change it to True. But "unsloth" is much faster.
     model = get_peft_model(
         model,
         LoraConfig(
@@ -131,15 +133,16 @@ def main(cfg_path):
     args = TrainingArguments(
         output_dir=t["output_dir"],
         num_train_epochs=t["num_train_epochs"],
-        per_device_train_batch_size=4,   # <-- HARDCODED
-        gradient_accumulation_steps=4,   # <-- HARDCODED
+        per_device_train_batch_size=2,   # <-- HARDCODED
+        gradient_accumulation_steps=8,   # <-- HARDCODED
         learning_rate=float(t["learning_rate"]),
         warmup_ratio=t["warmup_ratio"],
         lr_scheduler_type=t["lr_scheduler_type"],
         fp16=True,
         bf16=False,
         max_grad_norm=1.0,
-        gradient_checkpointing=False,    # <-- HARDCODED
+        gradient_checkpointing=True,     # <-- TURNED BACK ON to prevent OOM
+        gradient_checkpointing_kwargs={"use_reentrant": False}, # <-- MAKES IT FAST
         logging_steps=t["logging_steps"],
         eval_strategy="steps",
         eval_steps=t["eval_steps"],

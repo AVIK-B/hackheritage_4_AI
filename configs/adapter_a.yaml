@@ -7,12 +7,12 @@ data:
 training:
   output_dir: adapters/adapter_a
   num_train_epochs: 1
-  per_device_train_batch_size: 4
-  gradient_accumulation_steps: 4
+  per_device_train_batch_size: 2         # <-- CHANGED: from 4 to 2 to prevent OOM
+  gradient_accumulation_steps: 8         # <-- CHANGED: Effective batch size remains 16
   learning_rate: 1e-4
   warmup_ratio: 0.03
   lr_scheduler_type: cosine
-  max_seq_len: 1024                # <-- CHANGE THIS BACK TO 1024
+  max_seq_len: 1024                      # <-- KEEP THIS AT 1024
   seed: 42
   logging_steps: 20
   eval_steps: 200
