@@ -6,13 +6,13 @@ data:
   val: data/processed/dialogue_val.jsonl
 training:
   output_dir: adapters/adapter_a
-  num_train_epochs: 1           # <-- CHANGED: 1 epoch prevents overfitting/template repetition
-  per_device_train_batch_size: 2
+  num_train_epochs: 1
+  per_device_train_batch_size: 4   # <-- CHANGED: from 2 to 4
   gradient_accumulation_steps: 16
-  learning_rate: 1e-4           # <-- CHANGED: Slightly lower for smoother adaptation
+  learning_rate: 1e-4
   warmup_ratio: 0.03
   lr_scheduler_type: cosine
-  max_seq_len: 4096             # <-- CHANGED: Accommodate long detailed paragraphs
+  max_seq_len: 2048                # <-- CHANGED: from 4096 to 2048
   seed: 42
   logging_steps: 20
   eval_steps: 200
