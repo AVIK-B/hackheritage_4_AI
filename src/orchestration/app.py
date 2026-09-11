@@ -5,6 +5,7 @@ import time
 import uuid
 from contextlib import asynccontextmanager
 
+import secrets # Add this to your imports at the top of app.py
 import httpx
 import psycopg_pool
 import structlog
@@ -129,9 +130,26 @@ def _invoke(init: dict, stream_q: queue.Queue | None = None) -> dict:
     return final
 
 
+
 @app.post("/v1/interactions")
-def interact(req: Interaction, role: str = Depends(auth.require("victim"))):
+def interact(req: Interaction, request: Request, response: Response, role: str = Depends(auth.require("victim"))):
+    # 1. Check if the browser sent a session cookie
+    session_id = request.cookies.get("ps_session")
+    
+    # 2. If no cookie, generate a new one (guest user's first visit)
+    if not session_id:
+        session_id = secrets.token_urlsafe(24)
+        # Set the cookie to expire in 7 days, httpOnly so JS can't touch it
+        response.set_cookie(
+            key="ps_session", 
+            value=session_id, 
+            httponly=True, 
+            max_age=7 * 24 * 3600, 
+            samesite="lax"
+        )
+
     t0 = time.perf_counter()
+    # 3. Use the cookie session_id as the LangGraph thread_id
     final = _invoke(
         {
             "case_id": req.case_id,
@@ -141,6 +159,7 @@ def interact(req: Interaction, role: str = Depends(auth.require("victim"))):
             "signals": {},
             "errors": [],
             "dispatched": False,
+            "thread_id": session_id,  # <--- Context is now tied to the browser!
         }
     )
     awaiting = final["decision"].route == "escalate" and not final.get("dispatched")
@@ -152,9 +171,14 @@ def interact(req: Interaction, role: str = Depends(auth.require("victim"))):
         "audit_ref": final.get("audit_ref"),
     }
 
-
 @app.post("/v1/interactions/stream")
-def interact_stream(req: Interaction, role: str = Depends(auth.require("victim"))):
+def interact_stream(req: Interaction, request: Request, response: Response, role: str = Depends(auth.require("victim"))):
+    # 1. Check if the browser sent a session cookie
+    session_id = request.cookies.get("ps_session")
+    if not session_id:
+        session_id = secrets.token_urlsafe(24)
+        response.set_cookie(key="ps_session", value=session_id, httponly=True, max_age=7 * 24 * 3600, samesite="lax")
+
     q: queue.Queue = queue.Queue()
     result: dict = {}
 
@@ -169,6 +193,7 @@ def interact_stream(req: Interaction, role: str = Depends(auth.require("victim")
                     "signals": {},
                     "errors": [],
                     "dispatched": False,
+                    "thread_id": session_id, # <--- Context is now tied to the browser!
                 },
                 stream_q=q,
             )
@@ -176,6 +201,7 @@ def interact_stream(req: Interaction, role: str = Depends(auth.require("victim")
             result["err"] = str(e)
         q.put(None)
 
+    # ... keep the rest of the streaming code the same ...
     threading.Thread(target=run, daemon=True).start()
 
     def gen():
