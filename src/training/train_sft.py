@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 import torch
 import yaml
-from datasets import load_dataset
+from datasets import load_dataset, Dataset  # <-- Added Dataset to imports
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 from transformers import (
     AutoModelForCausalLM,
@@ -49,7 +49,7 @@ def encode(tok, prefix_msgs, target, max_len):
 def get_ds(path, tok, max_len, fmt):
     raw_ds = load_dataset("json", data_files=path, split="train")
 
-    # --- NEW: Flatten multi-turn conversations into individual prefix/target pairs ---
+    # Flatten multi-turn conversations into individual prefix/target pairs
     flattened_data = []
     for ex in raw_ds:
         msgs = ex["messages"]
@@ -61,14 +61,11 @@ def get_ds(path, tok, max_len, fmt):
                     "target": msgs[i]["content"] # The assistant's exact reply
                 })
                 
-    from datasets import Dataset
     ds = Dataset.from_list(flattened_data)
-    # -------------------------------------------------------------------------------
 
     degenerate = {"n": 0}
 
     def m(ex):
-        # Now it correctly uses the prefix/target format we built above
         e = encode(tok, ex["prefix"], ex["target"], max_len)
         if e is None:
             degenerate["n"] += 1
@@ -90,6 +87,11 @@ def main(cfg_path):
     t = cfg["training"]
     set_seed(t["seed"])
     tok = AutoTokenizer.from_pretrained(cfg["base_model"])
+    
+    # Failsafe: ensure pad token exists
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.eos_token
+
     bnb = BitsAndBytesConfig(
         load_in_4bit=True,
         bnb_4bit_quant_type="nf4",
@@ -119,9 +121,8 @@ def main(cfg_path):
     model.print_trainable_parameters()
 
     kwargs = {}
-    try:  # MLflow optional — never blocks a local run
+    try:
         import mlflow
-
         mlflow.set_experiment(cfg["run_name"])
         kwargs["report_to"] = "mlflow"
     except Exception as exc:
@@ -136,7 +137,7 @@ def main(cfg_path):
         warmup_ratio=t["warmup_ratio"],
         lr_scheduler_type=t["lr_scheduler_type"],
         fp16=True,
-        bf16=False,  # T4: fp16 only
+        bf16=False,
         max_grad_norm=1.0,
         gradient_checkpointing=True,
         logging_steps=t["logging_steps"],
@@ -166,7 +167,6 @@ def main(cfg_path):
     up = cfg.get("upload")
     if up and os.environ.get("HF_TOKEN"):
         from huggingface_hub import HfApi
-
         HfApi().upload_folder(
             folder_path=final, repo_id=up["repo_id"], path_in_repo=up["path_in_repo"], repo_type="model", private=True
         )
